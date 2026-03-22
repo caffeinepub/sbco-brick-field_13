@@ -1,0 +1,67 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@font-face {
+  font-family: "Plus Jakarta Sans";
+  src: url("/assets/fonts/PlusJakartaSans.woff2") format("woff2");
+  font-weight: 300 700;
+  font-display: swap;
+}
+
+@layer base {
+  :root {
+    --radius: 1.125rem;
+    /* Page bg: very light mint #EAF6EE → oklch ~0.965 0.028 152 */
+    --background: 0.965 0.028 152;
+    /* Foreground: deep forest green #0B4A1F → oklch ~0.32 0.09 152 */
+    --foreground: 0.32 0.09 152;
+    /* Card: white */
+    --card: 1 0 0;
+    --card-foreground: 0.32 0.09 152;
+    --popover: 1 0 0;
+    --popover-foreground: 0.32 0.09 152;
+    /* Primary: deep forest green */
+    --primary: 0.28 0.09 152;
+    --primary-foreground: 1 0 0;
+    /* Secondary: pastel mint #BFE7C6 → oklch ~0.88 0.06 152 */
+    --secondary: 0.88 0.06 152;
+    --secondary-foreground: 0.28 0.09 152;
+    /* Muted: muted gray-green #6F7F74 → oklch ~0.56 0.03 152 */
+    --muted: 0.94 0.02 152;
+    --muted-foreground: 0.56 0.03 152;
+    --accent: 0.88 0.06 152;
+    --accent-foreground: 0.28 0.09 152;
+    --destructive: 0.577 0.245 27.325;
+    --destructive-foreground: 0.985 0 0;
+    --border: 0.88 0.04 152;
+    --input: 0.88 0.04 152;
+    --ring: 0.28 0.09 152;
+    --chart-1: 0.646 0.222 41.116;
+    --chart-2: 0.6 0.118 184.704;
+    --chart-3: 0.398 0.07 227.392;
+    --chart-4: 0.828 0.189 84.429;
+    --chart-5: 0.769 0.188 70.08;
+    --sidebar: 0.28 0.09 152;
+    --sidebar-foreground: 1 0 0;
+    --sidebar-primary: 1 0 0;
+    --sidebar-primary-foreground: 0.28 0.09 152;
+    --sidebar-accent: 0.32 0.07 152;
+    --sidebar-accent-foreground: 1 0 0;
+    --sidebar-border: 0.36 0.07 152;
+    --sidebar-ring: 0.56 0.03 152;
+    /* Custom brand tokens */
+    --brand-green: 0.28 0.09 152;
+    --brand-mint-bg: 0.965 0.028 152;
+    --brand-mint-badge: 0.88 0.06 152;
+    --brand-muted: 0.56 0.03 152;
+  }
+
+  * {
+    @apply border-border;
+  }
+  body {
+    @apply bg-background text-foreground;
+    font-family: "Plus Jakarta Sans", system-ui, sans-serif;
+  }
+}
