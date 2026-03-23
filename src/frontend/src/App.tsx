@@ -54,7 +54,9 @@ type View =
   | "pending-delivery"
   | "complete-delivery"
   | "completed-list"
-  | "settings";
+  | "settings"
+  | "daily-labour-report"
+  | "weekly-labour-report";
 
 type BrickType =
   | "1 No Bricks"
@@ -960,7 +962,8 @@ function SettingsPage({ onBack }: { onBack: () => void }) {
 function ReportsModal({
   open,
   onClose,
-}: { open: boolean; onClose: () => void }) {
+  onNavigate,
+}: { open: boolean; onClose: () => void; onNavigate: (view: View) => void }) {
   return (
     <Dialog open={open} onOpenChange={onClose}>
       <DialogContent data-ocid="reports.modal" className="max-w-sm mx-4">
@@ -970,21 +973,28 @@ function ReportsModal({
           </DialogTitle>
         </DialogHeader>
         <div className="flex flex-col gap-3 py-2">
-          {[
-            "Daily Report",
-            "Weekly Summary",
-            "Monthly Overview",
-            "Export Data",
-          ].map((item) => (
-            <button
-              type="button"
-              key={item}
-              className="text-left px-4 py-3 rounded-xl bg-brand-mint-badge text-foreground font-medium hover:opacity-80 transition-opacity"
-              onClick={() => toast.info(`${item} — coming soon`)}
-            >
-              {item}
-            </button>
-          ))}
+          <button
+            type="button"
+            data-ocid="reports.daily_button"
+            className="text-left px-4 py-3 rounded-xl bg-brand-mint-badge text-foreground font-medium hover:opacity-80 transition-opacity"
+            onClick={() => {
+              onClose();
+              onNavigate("daily-labour-report");
+            }}
+          >
+            📋 Daily Report
+          </button>
+          <button
+            type="button"
+            data-ocid="reports.weekly_button"
+            className="text-left px-4 py-3 rounded-xl bg-brand-mint-badge text-foreground font-medium hover:opacity-80 transition-opacity"
+            onClick={() => {
+              onClose();
+              onNavigate("weekly-labour-report");
+            }}
+          >
+            📅 Weekly Report
+          </button>
         </div>
       </DialogContent>
     </Dialog>
@@ -3221,32 +3231,35 @@ function CompletedDeliveriesPage({
                           Labour
                         </div>
                         <div className="space-y-0.5">
-                          {cd.loadingLabours.map((name) => (
-                            <div
-                              key={`loading-${name}`}
-                              className="flex items-center justify-between"
-                            >
-                              <span className="text-[10px] text-foreground truncate">
-                                {name}
-                              </span>
-                              <span className="text-[10px] font-semibold text-green-700 ml-1 shrink-0">
-                                {cd.perLoadingLabour.toFixed(0)}
-                              </span>
-                            </div>
-                          ))}
-                          {cd.unloadingLabours.map((name) => (
-                            <div
-                              key={`unloading-${name}`}
-                              className="flex items-center justify-between"
-                            >
-                              <span className="text-[10px] text-foreground truncate">
-                                {name}
-                              </span>
-                              <span className="text-[10px] font-semibold text-green-700 ml-1 shrink-0">
-                                {cd.perUnloadingLabour.toFixed(0)}
-                              </span>
-                            </div>
-                          ))}
+                          {Array.from(
+                            new Set([
+                              ...cd.loadingLabours,
+                              ...cd.unloadingLabours,
+                            ]),
+                          ).map((name) => {
+                            const isLoading = cd.loadingLabours.includes(name);
+                            const isUnloading =
+                              cd.unloadingLabours.includes(name);
+                            const rate =
+                              isLoading && isUnloading
+                                ? cd.perLoadingLabour + cd.perUnloadingLabour
+                                : isLoading
+                                  ? cd.perLoadingLabour
+                                  : cd.perUnloadingLabour;
+                            return (
+                              <div
+                                key={name}
+                                className="flex items-center justify-between"
+                              >
+                                <span className="text-[10px] text-foreground truncate">
+                                  {name}
+                                </span>
+                                <span className="text-[10px] font-semibold text-green-700 ml-1 shrink-0">
+                                  {Math.round(rate)}
+                                </span>
+                              </div>
+                            );
+                          })}
                         </div>
                       </div>
                     )}
@@ -3287,6 +3300,379 @@ function CompletedDeliveriesPage({
             })}
           </div>
         )}
+      </main>
+    </motion.div>
+  );
+}
+
+function WeeklyLabourReportPage({ onBack }: { onBack: () => void }) {
+  const workers = ["Rahul", "Soma", "Sinu", "Raju"];
+  const dates = [
+    "16/03/26",
+    "17/03/26",
+    "18/03/26",
+    "19/03/26",
+    "20/03/26",
+    "21/03/26",
+    "22/03/26",
+  ];
+
+  const [amounts, setAmounts] = useState<number[][]>(() =>
+    workers.map(() => [230, 0, 0, 0, 0, 0, 0]),
+  );
+
+  const rowTotals = amounts.map((row) => row.reduce((a, b) => a + b, 0));
+  const grandTotal = rowTotals.reduce((a, b) => a + b, 0);
+
+  const handleChange = (wi: number, di: number, val: string) => {
+    const num = Number.parseFloat(val) || 0;
+    setAmounts((prev) => {
+      const next = prev.map((r) => [...r]);
+      next[wi][di] = num;
+      return next;
+    });
+  };
+
+  return (
+    <motion.div
+      key="weekly-labour-report"
+      initial={{ x: 60, opacity: 0 }}
+      animate={{ x: 0, opacity: 1 }}
+      exit={{ x: 60, opacity: 0 }}
+      transition={{ duration: 0.25, ease: "easeOut" }}
+      className="min-h-screen bg-gray-100 flex flex-col"
+    >
+      <style>
+        {
+          "@media print { .no-print { display: none !important; } body { background: #f3f4f6; } }"
+        }
+      </style>
+      <header
+        className="no-print flex items-center justify-between px-4 py-3"
+        style={{ background: "#1a4d2e" }}
+      >
+        <button
+          type="button"
+          onClick={onBack}
+          className="text-white flex items-center gap-1 font-bold"
+        >
+          ← Back
+        </button>
+        <span className="text-white font-bold text-base">
+          Weekly Labour Report
+        </span>
+        <button
+          type="button"
+          onClick={() => window.print()}
+          className="text-white bg-white/20 px-3 py-1 rounded text-sm font-bold"
+        >
+          🖨 Print
+        </button>
+      </header>
+      <main className="flex-1 p-4">
+        <div className="max-w-4xl mx-auto bg-white rounded-xl shadow-md p-6 border border-gray-200 overflow-x-auto">
+          <div className="text-center mb-4">
+            <div
+              className="text-xl font-extrabold uppercase tracking-widest"
+              style={{ color: "#1a4d2e" }}
+            >
+              S B C O BRICK FIELD
+            </div>
+            <div
+              className="text-lg font-extrabold uppercase tracking-widest"
+              style={{ color: "#1a4d2e" }}
+            >
+              WEEKLY LABOURS REPORT
+            </div>
+            <div className="text-sm text-gray-500 mt-1 font-semibold">
+              16/03/26 – 22/03/26
+            </div>
+          </div>
+          <table
+            className="w-full border-collapse"
+            style={{ border: "1px solid black" }}
+          >
+            <thead>
+              <tr style={{ background: "#1a4d2e" }}>
+                <th
+                  className="text-white font-bold text-sm px-2 py-2 text-left"
+                  style={{ border: "1px solid black", minWidth: 70 }}
+                >
+                  Name
+                </th>
+                {dates.map((d) => (
+                  <th
+                    key={d}
+                    className="text-white font-bold text-xs px-1 py-2 text-center"
+                    style={{ border: "1px solid black", minWidth: 60 }}
+                  >
+                    {d}
+                  </th>
+                ))}
+                <th
+                  className="text-white font-bold text-sm px-2 py-2 text-center"
+                  style={{ border: "1px solid black", minWidth: 60 }}
+                >
+                  Total
+                </th>
+              </tr>
+            </thead>
+            <tbody>
+              {workers.map((worker, wi) => (
+                <tr
+                  key={worker}
+                  className={wi % 2 === 0 ? "bg-white" : "bg-gray-50"}
+                >
+                  <td
+                    className="font-bold text-sm px-2 py-2"
+                    style={{ border: "1px solid black", color: "#1a4d2e" }}
+                  >
+                    {worker}
+                  </td>
+                  {dates.map((d, di) => (
+                    <td
+                      key={d}
+                      className="px-1 py-1 text-center"
+                      style={{ border: "1px solid black" }}
+                    >
+                      <input
+                        type="number"
+                        min={0}
+                        value={amounts[wi][di] || ""}
+                        placeholder="0"
+                        onChange={(e) => handleChange(wi, di, e.target.value)}
+                        className="border-0 bg-transparent text-center font-bold w-full focus:outline-none focus:ring-1 focus:ring-green-700 rounded text-sm"
+                        style={{ minWidth: 45 }}
+                      />
+                    </td>
+                  ))}
+                  <td
+                    className="font-bold text-sm px-2 py-2 text-center text-red-600"
+                    style={{ border: "1px solid black" }}
+                  >
+                    {rowTotals[wi]}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          <div
+            className="mt-4 flex justify-between items-center border border-black rounded px-4 py-3"
+            style={{ background: "#f9fafb" }}
+          >
+            <span
+              className="font-extrabold text-base uppercase tracking-widest"
+              style={{ color: "#1a4d2e" }}
+            >
+              GRAND TOTAL
+            </span>
+            <span className="font-extrabold text-xl text-red-600">
+              {grandTotal}
+            </span>
+          </div>
+        </div>
+      </main>
+    </motion.div>
+  );
+}
+
+function DailyLabourReportPage({ onBack }: { onBack: () => void }) {
+  const handlePrint = () => window.print();
+
+  const labours = ["Rahul", "Soma", "Sinu", "Raju"];
+  const rows = [
+    {
+      address: "DANGAPARA",
+      qty: 1000,
+      rate: 230,
+      amounts: [57.5, 57.5, 57.5, 57.5],
+    },
+    {
+      address: "DANGAPARA",
+      qty: 1000,
+      rate: 230,
+      amounts: [57.5, 57.5, 57.5, 57.5],
+    },
+  ];
+  const vehicles = ["1235", "3104"];
+  const perPersonTotal = 115;
+  const grandTotal = 460;
+  const summaryAmounts = [230, 230, 230, 230];
+  const overallTotal = summaryAmounts.reduce((a, b) => a + b, 0);
+
+  return (
+    <motion.div
+      key="daily-labour-report"
+      initial={{ x: 60, opacity: 0 }}
+      animate={{ x: 0, opacity: 1 }}
+      exit={{ x: 60, opacity: 0 }}
+      transition={{ duration: 0.25, ease: "easeOut" }}
+      className="min-h-screen bg-gray-100 flex flex-col"
+    >
+      {/* Print styles */}
+      <style>{`
+        @media print {
+          .no-print { display: none !important; }
+          .print-only { display: block !important; }
+          body { background: white !important; }
+          .print-area { box-shadow: none !important; }
+        }
+      `}</style>
+
+      {/* Header */}
+      <header className="no-print bg-[#1a4d2e] text-white px-4 py-4 flex items-center gap-3 shadow">
+        <button
+          type="button"
+          data-ocid="daily_labour.nav.back.button"
+          onClick={onBack}
+          className="p-1.5 rounded-lg hover:bg-white/10 transition-colors"
+        >
+          <ArrowLeft size={20} />
+        </button>
+        <h1 className="flex-1 text-lg font-bold uppercase tracking-widest">
+          Daily Labour Report
+        </h1>
+        <button
+          type="button"
+          data-ocid="daily_labour.print.button"
+          onClick={handlePrint}
+          className="flex items-center gap-2 bg-white/20 hover:bg-white/30 transition-colors px-3 py-1.5 rounded-lg text-sm font-semibold"
+        >
+          <Printer size={16} />
+          Print
+        </button>
+      </header>
+
+      {/* Report Content */}
+      <main className="flex-1 p-4 print-area">
+        <div className="max-w-2xl mx-auto bg-white rounded-xl shadow-md p-6 border border-gray-200">
+          {/* Title Block */}
+          <div className="text-center mb-6 border-b-2 border-[#1a4d2e] pb-4">
+            <h2 className="text-xl font-black uppercase tracking-widest text-[#1a4d2e] leading-tight">
+              S B C O BRICK FIELD
+            </h2>
+            <h3 className="text-base font-bold uppercase tracking-widest text-[#1a4d2e] mt-1">
+              Daily Labours Report
+            </h3>
+            <p className="text-sm text-gray-500 mt-2 font-medium">
+              Date: 16/03/26
+            </p>
+          </div>
+
+          {/* Vehicle Sections */}
+          {vehicles.map((vehicle) => (
+            <div key={vehicle} className="mb-6">
+              {/* Vehicle Header */}
+              <div className="bg-[#1a4d2e] text-white px-4 py-2 rounded-t-lg">
+                <span className="text-sm font-bold uppercase tracking-widest">
+                  Vehicle : {vehicle}
+                </span>
+              </div>
+
+              {/* Table */}
+              <div className="overflow-x-auto border border-black rounded-b-lg">
+                <table className="w-full text-sm border-collapse">
+                  <thead>
+                    <tr className="bg-[#1a4d2e] text-white">
+                      <th className="border border-black px-2 py-2 text-center font-bold text-xs uppercase tracking-wide">
+                        Address
+                      </th>
+                      <th className="border border-black px-2 py-2 text-center font-bold text-xs uppercase tracking-wide">
+                        Qty
+                      </th>
+                      <th className="border border-black px-2 py-2 text-center font-bold text-xs uppercase tracking-wide">
+                        Rate
+                      </th>
+                      {labours.map((l) => (
+                        <th
+                          key={l}
+                          className="border border-black px-2 py-2 text-center font-bold text-xs uppercase tracking-wide"
+                        >
+                          {l}
+                        </th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {rows.map((row, i) => (
+                      // biome-ignore lint/suspicious/noArrayIndexKey: static data
+                      <tr key={i} className="bg-white">
+                        <td className="border border-black px-2 py-2 text-center font-medium text-xs">
+                          {row.address}
+                        </td>
+                        <td className="border border-black px-2 py-2 text-center text-xs">
+                          {row.qty}
+                        </td>
+                        <td className="border border-black px-2 py-2 text-center text-xs">
+                          {row.rate}
+                        </td>
+                        {labours.map((lname, j) => (
+                          <td
+                            key={lname}
+                            className="border border-black px-2 py-2 text-center text-xs"
+                          >
+                            {row.amounts[j].toFixed(2)}
+                          </td>
+                        ))}
+                      </tr>
+                    ))}
+                    {/* Totals row */}
+                    <tr className="bg-gray-50">
+                      <td
+                        className="border border-black px-2 py-2 text-center font-bold text-xs"
+                        colSpan={3}
+                      >
+                        Total
+                      </td>
+                      {labours.map((l) => (
+                        <td
+                          key={l}
+                          className="border border-black px-2 py-2 text-center font-bold text-xs text-pink-600"
+                        >
+                          {perPersonTotal}
+                        </td>
+                      ))}
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+
+              {/* Grand Total */}
+              <div className="flex justify-end mt-2">
+                <span className="text-sm font-bold text-pink-600 bg-pink-50 border border-pink-200 px-4 py-1.5 rounded-lg">
+                  Grand Total : ₹{grandTotal}
+                </span>
+              </div>
+            </div>
+          ))}
+
+          {/* Summary Section */}
+          <div className="mt-4 border-t-2 border-[#1a4d2e] pt-4">
+            <h4 className="text-center text-sm font-black uppercase tracking-widest text-[#1a4d2e] mb-3">
+              Summary
+            </h4>
+            <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+              {labours.map((name, i) => (
+                <div
+                  key={name}
+                  className="text-center bg-gray-50 border border-gray-200 rounded-lg py-2 px-3"
+                >
+                  <div className="text-xs font-bold uppercase text-[#1a4d2e]">
+                    {name}
+                  </div>
+                  <div className="text-base font-black text-pink-600 mt-0.5">
+                    ₹{summaryAmounts[i]}
+                  </div>
+                </div>
+              ))}
+            </div>
+            <div className="text-center mt-3">
+              <span className="text-sm font-black text-pink-600 bg-pink-50 border border-pink-200 px-5 py-2 rounded-lg inline-block">
+                Overall Total : ₹{overallTotal}
+              </span>
+            </div>
+          </div>
+        </div>
       </main>
     </motion.div>
   );
@@ -3500,7 +3886,9 @@ export default function App() {
                   icon={<BarChart2 size={20} className={iconClass} />}
                   title="Reports"
                   subtitle="Tap to open"
-                  onClick={() => setReportsOpen(true)}
+                  onClick={() => {
+                    setReportsOpen(true);
+                  }}
                 />
               </div>
             </main>
@@ -3614,6 +4002,22 @@ export default function App() {
             }}
             onDelete={deleteCompletedDelivery}
           />
+        ) : view === "weekly-labour-report" ? (
+          <WeeklyLabourReportPage
+            key="weekly-labour-report"
+            onBack={() => {
+              const prev = navStackRef.current.pop() || "dashboard";
+              setView(prev as View);
+            }}
+          />
+        ) : view === "daily-labour-report" ? (
+          <DailyLabourReportPage
+            key="daily-labour-report"
+            onBack={() => {
+              const prev = navStackRef.current.pop() || "dashboard";
+              setView(prev as View);
+            }}
+          />
         ) : view === "settings" ? (
           <SettingsPage key="settings" onBack={() => setView("dashboard")} />
         ) : (
@@ -3653,8 +4057,15 @@ export default function App() {
         )}
       </AnimatePresence>
 
-      <ReportsModal open={reportsOpen} onClose={() => setReportsOpen(false)} />
-      <Toaster position="top-center" />
+      <ReportsModal
+        open={reportsOpen}
+        onClose={() => setReportsOpen(false)}
+        onNavigate={(v) => {
+          navStackRef.current.push(view);
+          setView(v);
+        }}
+      />
+      <Toaster position="bottom-center" />
 
       {view === "dashboard" && (
         <div className="fixed bottom-[72px] left-0 right-0 text-center py-1 text-[10px] text-muted-foreground bg-background/80 backdrop-blur-sm">
