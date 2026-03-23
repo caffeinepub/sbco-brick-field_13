@@ -18,8 +18,6 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Toaster } from "@/components/ui/sonner";
-import html2canvas from "html2canvas";
-import jsPDF from "jspdf";
 
 import {
   ArrowLeft,
@@ -29,14 +27,18 @@ import {
   ClipboardList,
   ClipboardPlus,
   Clock,
+  Download,
   Layers,
   LayoutGrid,
+  MapPin,
   Package,
   Pencil,
   Phone,
+  Printer,
   Settings,
   Trash2,
   Truck,
+  Users,
   Wallet,
 } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
@@ -50,6 +52,8 @@ type View =
   | "total-orders"
   | "pending-order"
   | "pending-delivery"
+  | "complete-delivery"
+  | "completed-list"
   | "settings";
 
 type BrickType =
@@ -94,6 +98,19 @@ interface Order {
   dueAmount: number;
   locationType: "Local" | "Outside";
   createdAt: Date;
+  completionData?: {
+    vehicleType: "Tractor" | "12 Wheel" | null;
+    vehicleNumber: string | null;
+    loadingLabours: string[];
+    unloadingLabours: string[];
+    paymentStatus: "Not Paid" | "Paid Money";
+    rate: number;
+    totalAmount: number;
+    loadingShare: number;
+    unloadingShare: number;
+    perLoadingLabour: number;
+    perUnloadingLabour: number;
+  };
 }
 
 function useLiveClock() {
@@ -266,8 +283,31 @@ function SettingsPage({ onBack }: { onBack: () => void }) {
       };
     }
   });
+  const [draftRates, setDraftRates] = useState<typeof rates>(() => {
+    try {
+      const saved = localStorage.getItem("sbco_rates");
+      return saved
+        ? JSON.parse(saved)
+        : {
+            tractorLocalRate: "",
+            tractorOutsideRate: "",
+            tractorSafetyBatsRate: "",
+            wheelLocalRate: "",
+            wheelSafetyBatsRate: "",
+          };
+    } catch {
+      return {
+        tractorLocalRate: "",
+        tractorOutsideRate: "",
+        tractorSafetyBatsRate: "",
+        wheelLocalRate: "",
+        wheelSafetyBatsRate: "",
+      };
+    }
+  });
   const saveRates = (r: typeof rates) => {
     setRates(r);
+    setDraftRates(r);
     localStorage.setItem("sbco_rates", JSON.stringify(r));
   };
 
@@ -665,9 +705,9 @@ function SettingsPage({ onBack }: { onBack: () => void }) {
                       type="number"
                       inputMode="numeric"
                       placeholder="Enter rate"
-                      value={rates.tractorLocalRate}
+                      value={draftRates.tractorLocalRate}
                       onChange={(e) =>
-                        setRates((r) => ({
+                        setDraftRates((r) => ({
                           ...r,
                           tractorLocalRate: e.target.value,
                         }))
@@ -686,9 +726,9 @@ function SettingsPage({ onBack }: { onBack: () => void }) {
                       type="number"
                       inputMode="numeric"
                       placeholder="Enter rate"
-                      value={rates.tractorOutsideRate}
+                      value={draftRates.tractorOutsideRate}
                       onChange={(e) =>
-                        setRates((r) => ({
+                        setDraftRates((r) => ({
                           ...r,
                           tractorOutsideRate: e.target.value,
                         }))
@@ -707,9 +747,9 @@ function SettingsPage({ onBack }: { onBack: () => void }) {
                       type="number"
                       inputMode="numeric"
                       placeholder="Enter rate"
-                      value={rates.tractorSafetyBatsRate}
+                      value={draftRates.tractorSafetyBatsRate}
                       onChange={(e) =>
-                        setRates((r) => ({
+                        setDraftRates((r) => ({
                           ...r,
                           tractorSafetyBatsRate: e.target.value,
                         }))
@@ -731,9 +771,9 @@ function SettingsPage({ onBack }: { onBack: () => void }) {
                       type="number"
                       inputMode="numeric"
                       placeholder="Enter rate"
-                      value={rates.wheelLocalRate}
+                      value={draftRates.wheelLocalRate}
                       onChange={(e) =>
-                        setRates((r) => ({
+                        setDraftRates((r) => ({
                           ...r,
                           wheelLocalRate: e.target.value,
                         }))
@@ -752,9 +792,9 @@ function SettingsPage({ onBack }: { onBack: () => void }) {
                       type="number"
                       inputMode="numeric"
                       placeholder="Enter rate"
-                      value={rates.wheelSafetyBatsRate}
+                      value={draftRates.wheelSafetyBatsRate}
                       onChange={(e) =>
-                        setRates((r) => ({
+                        setDraftRates((r) => ({
                           ...r,
                           wheelSafetyBatsRate: e.target.value,
                         }))
@@ -768,12 +808,12 @@ function SettingsPage({ onBack }: { onBack: () => void }) {
                 type="button"
                 data-ocid="settings.rates.save_button"
                 onClick={() => {
-                  saveRates(rates);
+                  saveRates(draftRates);
                   toast.success("Rates saved!");
                 }}
                 className="mt-1 w-full bg-brand-primary text-white rounded-xl py-2.5 text-sm font-bold shadow hover:opacity-90 transition-all"
               >
-                Save Rates
+                রেট সেভ করুন
               </button>
             </div>
 
@@ -791,9 +831,42 @@ function SettingsPage({ onBack }: { onBack: () => void }) {
                   rates.tractorOutsideRate ||
                   rates.tractorSafetyBatsRate) && (
                   <div>
-                    <p className="text-xs font-bold text-foreground mb-1">
-                      🚜 Tractor
-                    </p>
+                    <div className="flex items-center justify-between mb-1">
+                      <p className="text-xs font-bold text-foreground">
+                        🚜 Tractor
+                      </p>
+                      <div className="flex gap-1">
+                        <button
+                          type="button"
+                          title="Edit"
+                          onClick={() => {
+                            setDraftRates(rates);
+                            setRateVehicleType("Tractor");
+                          }}
+                          className="p-1 rounded-lg bg-blue-50 text-blue-500 hover:bg-blue-100"
+                        >
+                          <Pencil size={12} />
+                        </button>
+                        <button
+                          type="button"
+                          title="Delete"
+                          onClick={() => {
+                            if (confirm("Tractor রেট মুছে ফেলবেন?")) {
+                              const updated = {
+                                ...rates,
+                                tractorLocalRate: "",
+                                tractorOutsideRate: "",
+                                tractorSafetyBatsRate: "",
+                              };
+                              saveRates(updated);
+                            }
+                          }}
+                          className="p-1 rounded-lg bg-red-50 text-red-400 hover:bg-red-100"
+                        >
+                          <Trash2 size={12} />
+                        </button>
+                      </div>
+                    </div>
                     {rates.tractorLocalRate && (
                       <p className="text-xs text-muted-foreground">
                         লোকাল পার হাজার ইট:{" "}
@@ -822,9 +895,41 @@ function SettingsPage({ onBack }: { onBack: () => void }) {
                 )}
                 {(rates.wheelLocalRate || rates.wheelSafetyBatsRate) && (
                   <div>
-                    <p className="text-xs font-bold text-foreground mb-1">
-                      🚛 12 Wheel
-                    </p>
+                    <div className="flex items-center justify-between mb-1">
+                      <p className="text-xs font-bold text-foreground">
+                        🚛 12 Wheel
+                      </p>
+                      <div className="flex gap-1">
+                        <button
+                          type="button"
+                          title="Edit"
+                          onClick={() => {
+                            setDraftRates(rates);
+                            setRateVehicleType("12 Wheel");
+                          }}
+                          className="p-1 rounded-lg bg-blue-50 text-blue-500 hover:bg-blue-100"
+                        >
+                          <Pencil size={12} />
+                        </button>
+                        <button
+                          type="button"
+                          title="Delete"
+                          onClick={() => {
+                            if (confirm("12 Wheel রেট মুছে ফেলবেন?")) {
+                              const updated = {
+                                ...rates,
+                                wheelLocalRate: "",
+                                wheelSafetyBatsRate: "",
+                              };
+                              saveRates(updated);
+                            }
+                          }}
+                          className="p-1 rounded-lg bg-red-50 text-red-400 hover:bg-red-100"
+                        >
+                          <Trash2 size={12} />
+                        </button>
+                      </div>
+                    </div>
                     {rates.wheelLocalRate && (
                       <p className="text-xs text-muted-foreground">
                         পার হাজার ইট:{" "}
@@ -2004,13 +2109,13 @@ function PendingDeliveryPage({
   orders,
   onBack,
   onDelete,
-  onMarkDelivered,
+  onCompleteDelivery,
   onEditDelivery,
 }: {
   orders: Order[];
   onBack: () => void;
   onDelete: (orderId: string) => void;
-  onMarkDelivered: (orderId: string) => void;
+  onCompleteDelivery: (order: Order) => void;
   onEditDelivery: (order: Order) => void;
 }) {
   const [deleteTarget, setDeleteTarget] = useState<Order | null>(null);
@@ -2026,6 +2131,17 @@ function PendingDeliveryPage({
     const element = document.querySelector(".print-list") as HTMLElement;
     if (!element) return;
     try {
+      // Load html2canvas and jsPDF from CDN dynamically
+      const [html2canvasModule, jsPDFModule] = await Promise.all([
+        import(
+          "https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.esm.js" as string
+        ),
+        import(
+          "https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.es.min.js" as string
+        ),
+      ]);
+      const html2canvas = html2canvasModule.default || html2canvasModule;
+      const jsPDF = jsPDFModule.default || jsPDFModule.jsPDF;
       const canvas = await html2canvas(element, { scale: 2, useCORS: true });
       const imgData = canvas.toDataURL("image/png");
       const pdf = new jsPDF({
@@ -2277,7 +2393,7 @@ function PendingDeliveryPage({
                     <button
                       type="button"
                       data-ocid={`pending_delivery.mark_delivered_button.${idx + 1}`}
-                      onClick={() => onMarkDelivered(order.id)}
+                      onClick={() => onCompleteDelivery(order)}
                       className="flex-1 flex items-center justify-center gap-1.5 py-2.5 rounded-full bg-green-600 text-white font-bold text-[13px] hover:bg-green-700 transition-colors"
                     >
                       <CheckCircle size={14} />
@@ -2333,7 +2449,848 @@ function PendingDeliveryPage({
   );
 }
 
+interface CompleteDeliveryData {
+  vehicleType: "Tractor" | "12 Wheel" | null;
+  vehicleNumber: string | null;
+  loadingLabours: string[];
+  unloadingLabours: string[];
+  paymentStatus: "Not Paid" | "Paid Money";
+  rate: number;
+  totalAmount: number;
+  loadingShare: number;
+  unloadingShare: number;
+  perLoadingLabour: number;
+  perUnloadingLabour: number;
+}
+
+function CompleteDeliveryPage({
+  order,
+  onBack,
+  onSaveComplete,
+}: {
+  order: Order;
+  onBack: () => void;
+  onSaveComplete: (orderId: string, deliveryData: CompleteDeliveryData) => void;
+}) {
+  const [vehicleType, setVehicleType] = useState<"Tractor" | "12 Wheel" | null>(
+    null,
+  );
+  const [vehicleNumber, setVehicleNumber] = useState<string | null>(null);
+  const [loadingLabours, setLoadingLabours] = useState<string[]>([]);
+  const [unloadingLabours, setUnloadingLabours] = useState<string[]>([]);
+  const [paymentStatus, setPaymentStatus] = useState<"Not Paid" | "Paid Money">(
+    "Not Paid",
+  );
+  const [customLoadingInput, setCustomLoadingInput] = useState("");
+  const [customUnloadingInput, setCustomUnloadingInput] = useState("");
+
+  const vehicles: {
+    id: string;
+    type: "Tractor" | "12 Wheel";
+    number: string;
+    loadingLabors: string[];
+    unloadingLabors: string[];
+  }[] = (() => {
+    try {
+      const saved = localStorage.getItem("sbco_vehicles");
+      return saved ? JSON.parse(saved) : [];
+    } catch {
+      return [];
+    }
+  })();
+
+  const rates: {
+    tractorLocalRate: number;
+    tractorOutsideRate: number;
+    tractorSafetyBatsRate: number;
+    wheelLocalRate: number;
+    wheelSafetyBatsRate: number;
+  } = (() => {
+    try {
+      const saved = localStorage.getItem("sbco_rates");
+      return saved
+        ? JSON.parse(saved)
+        : {
+            tractorLocalRate: 0,
+            tractorOutsideRate: 0,
+            tractorSafetyBatsRate: 0,
+            wheelLocalRate: 0,
+            wheelSafetyBatsRate: 0,
+          };
+    } catch {
+      return {
+        tractorLocalRate: 0,
+        tractorOutsideRate: 0,
+        tractorSafetyBatsRate: 0,
+        wheelLocalRate: 0,
+        wheelSafetyBatsRate: 0,
+      };
+    }
+  })();
+
+  const computedRate = (() => {
+    if (!vehicleType) return 0;
+    if (vehicleType === "Tractor") {
+      return order.locationType === "Local"
+        ? Number(rates.tractorLocalRate) || 0
+        : Number(rates.tractorOutsideRate) || 0;
+    }
+    return Number(rates.wheelLocalRate) || 0;
+  })();
+
+  const totalAmount = (order.totalBricks / 1000) * computedRate;
+  const loadingShare = totalAmount / 2;
+  const unloadingShare = totalAmount / 2;
+  const perLoadingLabour =
+    loadingLabours.length > 0 ? loadingShare / loadingLabours.length : 0;
+  const perUnloadingLabour =
+    unloadingLabours.length > 0 ? unloadingShare / unloadingLabours.length : 0;
+
+  const handleVehicleNumberSelect = (vNum: string) => {
+    if (vehicleNumber === vNum) {
+      setVehicleNumber(null);
+      return;
+    }
+    setVehicleNumber(vNum);
+    const found = vehicles.find((v) => v.number === vNum);
+    if (found) {
+      setLoadingLabours(found.loadingLabors || []);
+      setUnloadingLabours(found.unloadingLabors || []);
+    }
+  };
+
+  const handleSave = () => {
+    onSaveComplete(order.id, {
+      vehicleType,
+      vehicleNumber,
+      loadingLabours,
+      unloadingLabours,
+      paymentStatus,
+      rate: computedRate,
+      totalAmount,
+      loadingShare,
+      unloadingShare,
+      perLoadingLabour,
+      perUnloadingLabour,
+    });
+  };
+
+  const getBrickSummary = () => {
+    if (!order.bricks || order.bricks.length === 0)
+      return `${order.totalBricks} bricks`;
+    return order.bricks
+      .map((b) => {
+        const qty = b.type === "Bats" ? (b.safety ?? 0) : b.quantity;
+        return `${b.type} - ${qty.toLocaleString()}`;
+      })
+      .join(", ");
+  };
+
+  return (
+    <motion.div
+      key="complete-delivery"
+      initial={{ x: 60, opacity: 0 }}
+      animate={{ x: 0, opacity: 1 }}
+      exit={{ x: 60, opacity: 0 }}
+      transition={{ duration: 0.25, ease: "easeOut" }}
+      className="min-h-screen bg-green-50 flex flex-col pb-24"
+    >
+      {/* Header */}
+      <header className="bg-white px-4 pt-3 pb-2 shadow-sm border-b border-green-100 sticky top-0 z-10">
+        <div className="flex items-center gap-3">
+          <button
+            type="button"
+            data-ocid="complete_delivery.back.button"
+            onClick={onBack}
+            className="p-2 rounded-xl bg-green-50 hover:bg-green-100 transition-colors text-green-700 shrink-0"
+          >
+            <ArrowLeft size={20} />
+          </button>
+          <div className="flex-1 min-w-0">
+            <h1 className="text-lg font-bold text-gray-900 leading-tight">
+              Complete Delivery
+            </h1>
+            <p className="text-sm text-green-600 font-medium mt-0.5">
+              Assign Vehicle
+            </p>
+          </div>
+          <button
+            type="button"
+            data-ocid="complete_delivery.save.button"
+            onClick={handleSave}
+            className="p-2 rounded-full bg-green-600 hover:bg-green-700 transition-colors text-white shrink-0"
+          >
+            <CheckCircle size={22} />
+          </button>
+        </div>
+      </header>
+
+      <main className="flex-1 p-3 flex flex-col gap-2">
+        {/* Customer Info */}
+        <div className="bg-white rounded-xl shadow-sm border border-green-100 p-3">
+          <div className="flex items-center gap-2 mb-2">
+            <div className="w-8 h-8 rounded-full bg-green-100 flex items-center justify-center shrink-0">
+              <svg
+                xmlns="http://www.w3.org/2000/svg"
+                width="20"
+                height="20"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                className="text-green-700"
+                aria-label="Customer"
+                role="img"
+              >
+                <path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2" />
+                <circle cx="12" cy="7" r="4" />
+              </svg>
+            </div>
+            <div className="flex-1 min-w-0">
+              <p className="font-extrabold text-gray-900 text-base leading-tight truncate">
+                {order.customerName}
+              </p>
+              {order.address && (
+                <p className="text-sm text-gray-500 truncate">
+                  {order.address}
+                </p>
+              )}
+            </div>
+          </div>
+          <div className="border-t border-gray-100 pt-2">
+            <p className="text-sm text-gray-600">
+              {order.totalBricks.toLocaleString()} bricks | {order.locationType}{" "}
+              | {order.orderDate}
+            </p>
+            <p className="text-xs text-gray-400 mt-1">{getBrickSummary()}</p>
+          </div>
+        </div>
+
+        {/* Vehicle Type */}
+        <div className="bg-white rounded-xl shadow-sm border border-green-100 p-3">
+          <div className="flex items-center gap-2 mb-2">
+            <Truck size={18} className="text-green-700" />
+            <span className="text-xs font-bold uppercase tracking-widest text-gray-500">
+              Vehicle Type
+            </span>
+          </div>
+          <div className="flex gap-2">
+            {(["Tractor", "12 Wheel"] as const).map((vt) => (
+              <button
+                key={vt}
+                type="button"
+                data-ocid={`complete_delivery.vehicle_type.${vt === "Tractor" ? "tractor" : "12wheel"}.button`}
+                onClick={() => {
+                  setVehicleType(vt);
+                  setVehicleNumber(null);
+                  setLoadingLabours([]);
+                  setUnloadingLabours([]);
+                }}
+                className={`flex-1 py-1.5 rounded-full font-bold text-sm transition-colors ${vehicleType === vt ? "bg-green-700 text-white" : "bg-green-100 text-green-700 hover:bg-green-200"}`}
+              >
+                {vt}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {/* Vehicle Number */}
+        {vehicleType && (
+          <motion.div
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="bg-white rounded-xl shadow-sm border border-green-100 p-3"
+          >
+            <span className="text-xs font-bold uppercase tracking-widest text-gray-500 block mb-2">
+              Vehicle Number
+            </span>
+            {vehicles.filter((v) => v.type === vehicleType).length === 0 ? (
+              <p className="text-sm text-gray-400 italic">
+                No {vehicleType} vehicles saved. Add vehicles in Settings.
+              </p>
+            ) : (
+              <div className="flex flex-wrap gap-1.5">
+                {vehicles
+                  .filter((v) => v.type === vehicleType)
+                  .map((v) => (
+                    <button
+                      key={v.id}
+                      type="button"
+                      onClick={() => handleVehicleNumberSelect(v.number)}
+                      className={`px-4 py-2 rounded-full font-bold text-sm transition-colors ${vehicleNumber === v.number ? "bg-green-700 text-white" : "bg-green-100 text-green-700 hover:bg-green-200"}`}
+                    >
+                      {v.number}
+                    </button>
+                  ))}
+              </div>
+            )}
+          </motion.div>
+        )}
+
+        {/* Loading / Unloading Labour */}
+        {vehicleNumber && (
+          <motion.div
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="bg-white rounded-xl shadow-sm border border-green-100 p-3 flex flex-col gap-3"
+          >
+            {/* Loading Labour */}
+            <div>
+              <div className="flex items-center justify-between mb-2">
+                <span className="text-xs font-bold uppercase tracking-widest text-gray-500">
+                  Loading Labour
+                </span>
+                {loadingLabours.length > 0 && perLoadingLabour > 0 && (
+                  <span className="text-xs font-bold text-green-700 bg-green-50 px-2 py-0.5 rounded-full">
+                    ৳{Math.round(perLoadingLabour).toLocaleString()} / জন
+                  </span>
+                )}
+              </div>
+              <div className="flex flex-wrap gap-1.5 mb-1.5">
+                {loadingLabours.map((name) => (
+                  <span
+                    key={name}
+                    className="flex items-center gap-1 px-2 py-1 rounded-full bg-green-700 text-white text-sm font-semibold"
+                  >
+                    {name}
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setLoadingLabours((prev) =>
+                          prev.filter((n) => n !== name),
+                        )
+                      }
+                      className="ml-1 text-green-200 hover:text-white font-bold leading-none"
+                    >
+                      ×
+                    </button>
+                  </span>
+                ))}
+              </div>
+              <div className="flex gap-2">
+                <input
+                  data-ocid="complete_delivery.loading_labour.input"
+                  type="text"
+                  value={customLoadingInput}
+                  onChange={(e) => setCustomLoadingInput(e.target.value)}
+                  placeholder="Add name..."
+                  className="flex-1 border border-green-200 rounded-full px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-green-400"
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" && customLoadingInput.trim()) {
+                      setLoadingLabours((prev) => [
+                        ...prev,
+                        customLoadingInput.trim(),
+                      ]);
+                      setCustomLoadingInput("");
+                    }
+                  }}
+                />
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (customLoadingInput.trim()) {
+                      setLoadingLabours((prev) => [
+                        ...prev,
+                        customLoadingInput.trim(),
+                      ]);
+                      setCustomLoadingInput("");
+                    }
+                  }}
+                  className="px-3 py-1.5 rounded-full bg-green-600 text-white text-sm font-bold hover:bg-green-700 transition-colors"
+                >
+                  +
+                </button>
+              </div>
+            </div>
+
+            {/* Unloading Labour */}
+            <div>
+              <div className="flex items-center justify-between mb-2">
+                <span className="text-xs font-bold uppercase tracking-widest text-gray-500">
+                  Unloading Labour
+                </span>
+                {unloadingLabours.length > 0 && perUnloadingLabour > 0 && (
+                  <span className="text-xs font-bold text-green-700 bg-green-50 px-2 py-0.5 rounded-full">
+                    ৳{Math.round(perUnloadingLabour).toLocaleString()} / জন
+                  </span>
+                )}
+              </div>
+              <div className="flex flex-wrap gap-1.5 mb-1.5">
+                {unloadingLabours.map((name) => (
+                  <span
+                    key={name}
+                    className="flex items-center gap-1 px-2 py-1 rounded-full bg-green-700 text-white text-sm font-semibold"
+                  >
+                    {name}
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setUnloadingLabours((prev) =>
+                          prev.filter((n) => n !== name),
+                        )
+                      }
+                      className="ml-1 text-green-200 hover:text-white font-bold leading-none"
+                    >
+                      ×
+                    </button>
+                  </span>
+                ))}
+              </div>
+              <div className="flex gap-2">
+                <input
+                  data-ocid="complete_delivery.unloading_labour.input"
+                  type="text"
+                  value={customUnloadingInput}
+                  onChange={(e) => setCustomUnloadingInput(e.target.value)}
+                  placeholder="Add name..."
+                  className="flex-1 border border-green-200 rounded-full px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-green-400"
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" && customUnloadingInput.trim()) {
+                      setUnloadingLabours((prev) => [
+                        ...prev,
+                        customUnloadingInput.trim(),
+                      ]);
+                      setCustomUnloadingInput("");
+                    }
+                  }}
+                />
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (customUnloadingInput.trim()) {
+                      setUnloadingLabours((prev) => [
+                        ...prev,
+                        customUnloadingInput.trim(),
+                      ]);
+                      setCustomUnloadingInput("");
+                    }
+                  }}
+                  className="px-3 py-1.5 rounded-full bg-green-600 text-white text-sm font-bold hover:bg-green-700 transition-colors"
+                >
+                  +
+                </button>
+              </div>
+            </div>
+          </motion.div>
+        )}
+
+        {/* Auto Calculated Amounts */}
+        {vehicleType && (
+          <motion.div
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="bg-blue-50 rounded-xl shadow-sm border border-blue-100 p-3"
+          >
+            <span className="text-xs font-bold uppercase tracking-widest text-blue-600 block mb-2">
+              Auto Calculated Amounts
+            </span>
+            <div className="flex flex-col gap-1.5">
+              <div className="flex justify-between items-center">
+                <span className="text-sm text-gray-600">
+                  Rate (per 1000 bricks)
+                </span>
+                <span className="font-bold text-gray-900">
+                  ৳{computedRate.toFixed(2)}
+                </span>
+              </div>
+              <div className="flex justify-between items-center">
+                <span className="text-sm text-gray-600">Total Amount</span>
+                <span className="font-bold text-gray-900">
+                  ৳{totalAmount.toFixed(2)}
+                </span>
+              </div>
+              <div className="border-t border-blue-200 my-1" />
+              <div className="flex justify-between items-center">
+                <span className="text-sm text-gray-600">Loading Share</span>
+                <span className="font-semibold text-gray-800">
+                  ৳{loadingShare.toFixed(2)}
+                </span>
+              </div>
+              <div className="flex justify-between items-center">
+                <span className="text-sm text-gray-600">Unloading Share</span>
+                <span className="font-semibold text-gray-800">
+                  ৳{unloadingShare.toFixed(2)}
+                </span>
+              </div>
+              {loadingLabours.length > 0 && (
+                <div className="flex justify-between items-center">
+                  <span className="text-sm text-gray-600">
+                    Per Loading Labour ({loadingLabours.length})
+                  </span>
+                  <span className="font-semibold text-green-700">
+                    ৳{perLoadingLabour.toFixed(2)}
+                  </span>
+                </div>
+              )}
+              {unloadingLabours.length > 0 && (
+                <div className="flex justify-between items-center">
+                  <span className="text-sm text-gray-600">
+                    Per Unloading Labour ({unloadingLabours.length})
+                  </span>
+                  <span className="font-semibold text-green-700">
+                    ৳{perUnloadingLabour.toFixed(2)}
+                  </span>
+                </div>
+              )}
+            </div>
+          </motion.div>
+        )}
+
+        {/* Payment Status */}
+        <div className="bg-white rounded-xl shadow-sm border border-green-100 p-3">
+          <span className="text-xs font-bold uppercase tracking-widest text-gray-500 block mb-2">
+            Payment Status
+          </span>
+          <div className="flex gap-2">
+            {(["Not Paid", "Paid Money"] as const).map((ps) => (
+              <button
+                key={ps}
+                type="button"
+                data-ocid={`complete_delivery.payment_status.${ps === "Not Paid" ? "not_paid" : "paid"}.button`}
+                onClick={() => setPaymentStatus(ps)}
+                className={`flex-1 py-1.5 rounded-full font-bold text-sm transition-colors ${paymentStatus === ps ? "bg-green-700 text-white" : "bg-green-100 text-green-700 hover:bg-green-200"}`}
+              >
+                {ps === "Paid Money" ? "✓ " : ""}
+                {ps}
+              </button>
+            ))}
+          </div>
+        </div>
+      </main>
+
+      {/* Save Button - Fixed */}
+      <div className="fixed bottom-0 left-0 right-0 p-4 bg-white border-t border-green-100 shadow-lg z-10">
+        <button
+          type="button"
+          data-ocid="complete_delivery.submit_button"
+          onClick={handleSave}
+          className="w-full py-3 rounded-xl bg-green-700 hover:bg-green-800 text-white font-extrabold text-sm tracking-wide transition-colors shadow-lg"
+        >
+          Save as Complete
+        </button>
+      </div>
+    </motion.div>
+  );
+}
+
 // ─── App ──────────────────────────────────────────────────────────────────────
+
+function CompletedDeliveriesPage({
+  completedDeliveries,
+  onBack,
+  onDelete,
+}: {
+  completedDeliveries: Order[];
+  onBack: () => void;
+  onDelete: (orderId: string) => void;
+}) {
+  const [filterFrom, setFilterFrom] = useState("");
+  const [filterTo, setFilterTo] = useState("");
+  const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null);
+
+  const filtered = completedDeliveries.filter((o) => {
+    if (!filterFrom && !filterTo) return true;
+    const d = new Date(o.orderDate);
+    if (filterFrom && d < new Date(filterFrom)) return false;
+    if (filterTo && d > new Date(filterTo)) return false;
+    return true;
+  });
+
+  const handlePrint = () => window.print();
+
+  const handlePDF = async () => {
+    const element = document.querySelector(
+      ".completed-print-list",
+    ) as HTMLElement;
+    if (!element) return;
+    try {
+      const [html2canvasModule, jsPDFModule] = await Promise.all([
+        import(
+          "https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.esm.js" as string
+        ),
+        import(
+          "https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.es.min.js" as string
+        ),
+      ]);
+      const html2canvas = html2canvasModule.default || html2canvasModule;
+      const jsPDF = jsPDFModule.default || jsPDFModule.jsPDF;
+      const canvas = await (html2canvas as any)(element, {
+        scale: 2,
+        useCORS: true,
+      });
+      const imgData = canvas.toDataURL("image/png");
+      const pdf = new (jsPDF as any)({
+        orientation: "portrait",
+        unit: "px",
+        format: "a4",
+      });
+      const pageWidth = pdf.internal.pageSize.getWidth();
+      const pageHeight = pdf.internal.pageSize.getHeight();
+      const imgWidth = pageWidth;
+      const imgHeight = (canvas.height * pageWidth) / canvas.width;
+      let heightLeft = imgHeight;
+      let position = 0;
+      pdf.addImage(imgData, "PNG", 0, position, imgWidth, imgHeight);
+      heightLeft -= pageHeight;
+      while (heightLeft > 0) {
+        position = heightLeft - imgHeight;
+        pdf.addPage();
+        pdf.addImage(imgData, "PNG", 0, position, imgWidth, imgHeight);
+        heightLeft -= pageHeight;
+      }
+      pdf.save("complete-deliveries.pdf");
+    } catch {
+      alert("PDF তৈরিতে সমস্যা হয়েছে।");
+    }
+  };
+  return (
+    <motion.div
+      key="completed-list"
+      initial={{ x: 60, opacity: 0 }}
+      animate={{ x: 0, opacity: 1 }}
+      exit={{ x: 60, opacity: 0 }}
+      transition={{ duration: 0.25, ease: "easeOut" }}
+      className="min-h-screen bg-background flex flex-col"
+    >
+      <header className="bg-white px-3 pt-4 pb-2 flex items-center gap-2 shadow-sm print:hidden">
+        <button
+          type="button"
+          onClick={onBack}
+          className="w-8 h-8 rounded-full bg-green-100 flex items-center justify-center text-green-700 hover:bg-green-200 transition-colors"
+        >
+          <ArrowLeft size={16} />
+        </button>
+        <div className="flex-1">
+          <h1 className="text-base font-extrabold text-foreground">
+            Complete List
+          </h1>
+          <p className="text-xs text-muted-foreground">
+            {filtered.length} Complete Deliveries
+          </p>
+        </div>
+        <button
+          type="button"
+          onClick={handlePrint}
+          className="flex items-center gap-1 px-3 py-1.5 rounded-lg border border-green-300 bg-white text-green-700 text-xs font-medium hover:bg-green-50 transition-colors"
+        >
+          <Printer size={13} />
+          Print
+        </button>
+        <button
+          type="button"
+          onClick={handlePDF}
+          className="flex items-center gap-1 px-3 py-1.5 rounded-lg bg-green-700 text-white text-xs font-medium hover:bg-green-800 transition-colors"
+        >
+          <Download size={13} />
+          PDF
+        </button>
+      </header>
+
+      <div className="px-3 py-2 bg-white border-b print:hidden">
+        <div className="flex gap-2 items-center">
+          <div className="flex-1">
+            <label
+              htmlFor="filter-from"
+              className="text-[10px] font-bold text-green-700 uppercase tracking-wide flex items-center gap-1 mb-1"
+            >
+              <CalendarDays size={10} /> FROM
+            </label>
+            <input
+              id="filter-from"
+              type="date"
+              value={filterFrom}
+              onChange={(e) => setFilterFrom(e.target.value)}
+              className="w-full px-2 py-1.5 rounded-lg border border-green-200 bg-green-50 text-xs"
+            />
+          </div>
+          <span className="text-muted-foreground text-sm mt-4">—</span>
+          <div className="flex-1">
+            <label
+              htmlFor="filter-to"
+              className="text-[10px] font-bold text-green-700 uppercase tracking-wide flex items-center gap-1 mb-1"
+            >
+              <CalendarDays size={10} /> TO
+            </label>
+            <input
+              id="filter-to"
+              type="date"
+              value={filterTo}
+              onChange={(e) => setFilterTo(e.target.value)}
+              className="w-full px-2 py-1.5 rounded-lg border border-green-200 bg-green-50 text-xs"
+            />
+          </div>
+        </div>
+      </div>
+
+      <main className="flex-1 p-3 overflow-y-auto completed-print-list">
+        {filtered.length === 0 ? (
+          <div className="flex flex-col items-center justify-center h-48 gap-3">
+            <Truck size={40} className="text-green-200" />
+            <p className="text-sm text-muted-foreground">
+              No completed deliveries yet
+            </p>
+          </div>
+        ) : (
+          <div className="grid grid-cols-2 gap-2">
+            {filtered.map((order) => {
+              const cd = order.completionData;
+              const amount = cd?.totalAmount ?? order.totalAmount;
+
+              return (
+                <div
+                  key={order.id}
+                  className="bg-white rounded-xl shadow-sm border border-green-100 p-2"
+                >
+                  <div className="flex items-start justify-between gap-1 mb-1">
+                    <span className="font-bold text-xs text-foreground leading-tight truncate flex-1">
+                      {order.customerName}
+                    </span>
+                    <div className="flex items-center gap-1 shrink-0">
+                      {order.locationType === "Local" && (
+                        <span className="bg-green-50 border border-green-300 text-green-700 text-[9px] font-semibold px-1 py-0.5 rounded-full">
+                          Local
+                        </span>
+                      )}
+                      <button
+                        type="button"
+                        onClick={() => setDeleteConfirm(order.id)}
+                        className="w-5 h-5 rounded bg-red-50 flex items-center justify-center text-red-500 hover:bg-red-100 transition-colors"
+                      >
+                        <Trash2 size={10} />
+                      </button>
+                    </div>
+                  </div>
+
+                  <div className="flex items-center gap-1 mb-1">
+                    <span className="text-[10px] font-bold text-green-700">
+                      {amount.toFixed(2)}
+                    </span>
+                  </div>
+
+                  <div className="flex items-center gap-1 text-[10px] text-muted-foreground mb-1">
+                    <CalendarDays
+                      size={9}
+                      className="text-green-600 shrink-0"
+                    />
+                    <span>{order.orderDate}</span>
+                  </div>
+
+                  {cd?.vehicleNumber && (
+                    <div className="flex items-center gap-1 text-[10px] text-muted-foreground mb-1">
+                      <Truck size={9} className="text-green-600 shrink-0" />
+                      <span className="truncate">{cd.vehicleNumber}</span>
+                    </div>
+                  )}
+
+                  {order.bricks && order.bricks.length > 0 && (
+                    <div className="flex items-center gap-1 text-[10px] text-muted-foreground mb-1">
+                      <Layers size={9} className="text-green-600 shrink-0" />
+                      <span className="truncate">
+                        {order.bricks
+                          .map((b) => `${b.type}-${b.quantity}`)
+                          .join(", ")}
+                      </span>
+                    </div>
+                  )}
+
+                  <div className="flex items-center gap-1 mb-1">
+                    <span className="bg-blue-50 text-blue-700 text-[9px] font-bold px-1 py-0.5 rounded">
+                      INV#{order.invoiceNumber}
+                    </span>
+                    {order.phoneNumber && (
+                      <a
+                        href={`tel:${order.phoneNumber}`}
+                        className="flex items-center gap-0.5 text-[10px] text-blue-600 hover:underline ml-auto"
+                      >
+                        <Phone size={9} />
+                        <span className="truncate max-w-[60px]">
+                          {order.phoneNumber}
+                        </span>
+                      </a>
+                    )}
+                  </div>
+
+                  {cd &&
+                    (cd.loadingLabours.length > 0 ||
+                      cd.unloadingLabours.length > 0) && (
+                      <div className="border-t border-green-100 pt-1 mt-1">
+                        <div className="flex items-center gap-0.5 text-[9px] font-bold text-green-700 uppercase mb-1">
+                          <Users size={9} />
+                          Labour
+                        </div>
+                        <div className="space-y-0.5">
+                          {cd.loadingLabours.map((name) => (
+                            <div
+                              key={`loading-${name}`}
+                              className="flex items-center justify-between"
+                            >
+                              <span className="text-[10px] text-foreground truncate">
+                                {name}
+                              </span>
+                              <span className="text-[10px] font-semibold text-green-700 ml-1 shrink-0">
+                                {cd.perLoadingLabour.toFixed(0)}
+                              </span>
+                            </div>
+                          ))}
+                          {cd.unloadingLabours.map((name) => (
+                            <div
+                              key={`unloading-${name}`}
+                              className="flex items-center justify-between"
+                            >
+                              <span className="text-[10px] text-foreground truncate">
+                                {name}
+                              </span>
+                              <span className="text-[10px] font-semibold text-green-700 ml-1 shrink-0">
+                                {cd.perUnloadingLabour.toFixed(0)}
+                              </span>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                  {order.address && (
+                    <div className="flex items-center gap-1 text-[10px] text-muted-foreground mt-1 border-t border-green-50 pt-1">
+                      <MapPin size={9} className="text-green-500 shrink-0" />
+                      <span className="italic truncate">{order.address}</span>
+                    </div>
+                  )}
+
+                  {deleteConfirm === order.id && (
+                    <div className="mt-1.5 bg-red-50 rounded-lg p-1.5 flex items-center gap-1.5">
+                      <span className="text-[10px] text-red-700 flex-1">
+                        Delete?
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          onDelete(order.id);
+                          setDeleteConfirm(null);
+                        }}
+                        className="px-1.5 py-0.5 bg-red-500 text-white text-[10px] rounded"
+                      >
+                        Yes
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setDeleteConfirm(null)}
+                        className="px-1.5 py-0.5 bg-gray-200 text-gray-700 text-[10px] rounded"
+                      >
+                        No
+                      </button>
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </main>
+    </motion.div>
+  );
+}
 
 export default function App() {
   const [view, setView] = useState<View>("dashboard");
@@ -2347,6 +3304,7 @@ export default function App() {
       if (prev) {
         setView(prev);
         setSelectedPendingOrder(null);
+        setSelectedCompleteOrder(null);
       } else {
         setView("dashboard");
       }
@@ -2399,6 +3357,8 @@ export default function App() {
 
   const [selectedPendingOrder, setSelectedPendingOrder] =
     useState<Order | null>(null);
+  const [selectedCompleteOrder, setSelectedCompleteOrder] =
+    useState<Order | null>(null);
   const now = useLiveClock();
 
   const addOrder = (order: Order) => {
@@ -2413,13 +3373,23 @@ export default function App() {
     setOrders((prev) => prev.filter((o) => o.id !== orderId));
   };
 
-  const markAsDelivered = (orderId: string) => {
+  const markAsDelivered = (
+    orderId: string,
+    deliveryData?: CompleteDeliveryData,
+  ) => {
     const order = pendingDeliveries.find((o) => o.id === orderId);
     if (order) {
+      const completed = deliveryData
+        ? { ...order, completionData: deliveryData }
+        : order;
       setPendingDeliveries((prev) => prev.filter((o) => o.id !== orderId));
-      setCompletedDeliveries((prev) => [order, ...prev]);
+      setCompletedDeliveries((prev) => [completed, ...prev]);
       toast.success(`${order.customerName} marked as delivered!`);
     }
+  };
+
+  const deleteCompletedDelivery = (orderId: string) => {
+    setCompletedDeliveries((prev) => prev.filter((o) => o.id !== orderId));
   };
 
   const deleteDelivery = (orderId: string) => {
@@ -2498,7 +3468,11 @@ export default function App() {
                   title="Complete Delivery"
                   value={String(completedDeliveries.length)}
                   clickable
-                  onClick={() => handleCardClick("Complete Delivery")}
+                  onClick={() => {
+                    navStackRef.current.push("dashboard");
+                    window.history.pushState({ view: "completed-list" }, "");
+                    setView("completed-list");
+                  }}
                 />
                 <StatCard
                   data-ocid="total_due.card"
@@ -2587,7 +3561,12 @@ export default function App() {
             orders={pendingDeliveries}
             onBack={() => setView("dashboard")}
             onDelete={deleteDelivery}
-            onMarkDelivered={markAsDelivered}
+            onCompleteDelivery={(order) => {
+              setSelectedCompleteOrder(order);
+              navStackRef.current.push("pending-delivery");
+              window.history.pushState({ view: "complete-delivery" }, "");
+              setView("complete-delivery");
+            }}
             onEditDelivery={(order) => {
               setSelectedPendingOrder(order);
               setPendingOrderReturnView("pending-delivery");
@@ -2610,6 +3589,30 @@ export default function App() {
               setView(pendingOrderReturnView);
               setSelectedPendingOrder(null);
             }}
+          />
+        ) : view === "complete-delivery" && selectedCompleteOrder ? (
+          <CompleteDeliveryPage
+            key="complete-delivery"
+            order={selectedCompleteOrder}
+            onBack={() => {
+              setSelectedCompleteOrder(null);
+              setView("pending-delivery");
+            }}
+            onSaveComplete={(orderId, data) => {
+              markAsDelivered(orderId, data);
+              setSelectedCompleteOrder(null);
+              setView("pending-delivery");
+            }}
+          />
+        ) : view === "completed-list" ? (
+          <CompletedDeliveriesPage
+            key="completed-list"
+            completedDeliveries={completedDeliveries}
+            onBack={() => {
+              const prev = navStackRef.current.pop();
+              setView(prev ?? "dashboard");
+            }}
+            onDelete={deleteCompletedDelivery}
           />
         ) : view === "settings" ? (
           <SettingsPage key="settings" onBack={() => setView("dashboard")} />
