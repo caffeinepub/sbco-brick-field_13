@@ -1,4 +1,14 @@
 import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import {
   Dialog,
   DialogContent,
   DialogFooter,
@@ -8,6 +18,9 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Toaster } from "@/components/ui/sonner";
+import html2canvas from "html2canvas";
+import jsPDF from "jspdf";
+
 import {
   ArrowLeft,
   BarChart2,
@@ -20,16 +33,24 @@ import {
   LayoutGrid,
   Package,
   Pencil,
+  Phone,
   Settings,
   Trash2,
   Truck,
   Wallet,
 } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 
-type View = "dashboard" | "add-order" | "direct-delivery" | "total-orders";
+type View =
+  | "dashboard"
+  | "add-order"
+  | "direct-delivery"
+  | "total-orders"
+  | "pending-order"
+  | "pending-delivery"
+  | "settings";
 
 type BrickType =
   | "1 No Bricks"
@@ -187,32 +208,647 @@ function ActionCard({
   );
 }
 
-function SettingsModal({
-  open,
-  onClose,
-}: { open: boolean; onClose: () => void }) {
+interface Vehicle {
+  id: string;
+  type: "Tractor" | "12 Wheel";
+  number: string;
+  loadingLabors: string[];
+  unloadingLabors?: string[];
+}
+
+function SettingsPage({ onBack }: { onBack: () => void }) {
+  const [activeTab, setActiveTab] = useState<"vehicles" | "rates">("vehicles");
+  const [vehicleType, setVehicleType] = useState<"Tractor" | "12 Wheel">(
+    "Tractor",
+  );
+  const [vehicleNumber, setVehicleNumber] = useState("");
+  const [laborInput, setLaborInput] = useState("");
+  const [loadingLabors, setLoadingLabors] = useState<string[]>([]);
+  const [unloadingLabors, setUnloadingLabors] = useState<string[]>([]);
+  const [vehicles, setVehicles] = useState<Vehicle[]>(() => {
+    try {
+      const saved = localStorage.getItem("sbco_vehicles");
+      return saved ? JSON.parse(saved) : [];
+    } catch {
+      return [];
+    }
+  });
+  const [editingId, setEditingId] = useState<string | null>(null);
+
+  const [rateVehicleType, setRateVehicleType] = useState<
+    "Tractor" | "12 Wheel"
+  >("Tractor");
+  const [rates, setRates] = useState<{
+    tractorLocalRate: string;
+    tractorOutsideRate: string;
+    tractorSafetyBatsRate: string;
+    wheelLocalRate: string;
+    wheelSafetyBatsRate: string;
+  }>(() => {
+    try {
+      const saved = localStorage.getItem("sbco_rates");
+      return saved
+        ? JSON.parse(saved)
+        : {
+            tractorLocalRate: "",
+            tractorOutsideRate: "",
+            tractorSafetyBatsRate: "",
+            wheelLocalRate: "",
+            wheelSafetyBatsRate: "",
+          };
+    } catch {
+      return {
+        tractorLocalRate: "",
+        tractorOutsideRate: "",
+        tractorSafetyBatsRate: "",
+        wheelLocalRate: "",
+        wheelSafetyBatsRate: "",
+      };
+    }
+  });
+  const saveRates = (r: typeof rates) => {
+    setRates(r);
+    localStorage.setItem("sbco_rates", JSON.stringify(r));
+  };
+
+  const saveVehicles = (list: Vehicle[]) => {
+    setVehicles(list);
+    localStorage.setItem("sbco_vehicles", JSON.stringify(list));
+  };
+
+  const addLabor = () => {
+    const name = laborInput.trim();
+    if (!name || loadingLabors.includes(name)) return;
+    setLoadingLabors((prev) => [...prev, name]);
+    setUnloadingLabors((prev) => [...prev, name]);
+    setLaborInput("");
+  };
+
+  const removeLabor = (name: string) => {
+    setLoadingLabors((prev) => prev.filter((l) => l !== name));
+  };
+
+  const handleSave = () => {
+    if (!vehicleNumber.trim()) {
+      toast.error("Vehicle number is required");
+      return;
+    }
+    if (editingId) {
+      saveVehicles(
+        vehicles.map((v) =>
+          v.id === editingId
+            ? {
+                ...v,
+                type: vehicleType,
+                number: vehicleNumber.trim(),
+                loadingLabors,
+                unloadingLabors,
+              }
+            : v,
+        ),
+      );
+      setEditingId(null);
+    } else {
+      const newVehicle: Vehicle = {
+        id: Date.now().toString(),
+        type: vehicleType,
+        number: vehicleNumber.trim(),
+        loadingLabors,
+        unloadingLabors,
+      };
+      saveVehicles([newVehicle, ...vehicles]);
+    }
+    setVehicleNumber("");
+    setLoadingLabors([]);
+    setUnloadingLabors([]);
+    setVehicleType("Tractor");
+    toast.success(editingId ? "Vehicle updated!" : "Vehicle saved!");
+  };
+
+  const handleEdit = (v: Vehicle) => {
+    setEditingId(v.id);
+    setVehicleType(v.type);
+    setVehicleNumber(v.number);
+    setLoadingLabors([...v.loadingLabors]);
+    setUnloadingLabors([...(v.unloadingLabors ?? [])]);
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  };
+
+  const handleDelete = (id: string) => {
+    saveVehicles(vehicles.filter((v) => v.id !== id));
+    toast.success("Vehicle removed");
+  };
+
   return (
-    <Dialog open={open} onOpenChange={onClose}>
-      <DialogContent data-ocid="settings.modal" className="max-w-sm mx-4">
-        <DialogHeader>
-          <DialogTitle className="uppercase tracking-widest text-foreground">
-            Settings
-          </DialogTitle>
-        </DialogHeader>
-        <div className="flex flex-col gap-3 py-2">
-          {["Language", "Notifications", "Theme", "About"].map((item) => (
+    <motion.div
+      key="settings"
+      initial={{ x: 60, opacity: 0 }}
+      animate={{ x: 0, opacity: 1 }}
+      exit={{ x: 60, opacity: 0 }}
+      transition={{ duration: 0.25, ease: "easeOut" }}
+      className="min-h-screen bg-background flex flex-col"
+      data-ocid="settings.page"
+    >
+      {/* Header */}
+      <header className="bg-primary text-primary-foreground px-4 py-5 flex items-center gap-3">
+        <button
+          type="button"
+          data-ocid="settings.back.button"
+          onClick={onBack}
+          className="p-1.5 rounded-lg hover:bg-white/10 transition-colors"
+        >
+          <ArrowLeft size={20} />
+        </button>
+        <h1 className="text-lg font-bold uppercase tracking-widest">
+          Settings
+        </h1>
+      </header>
+
+      {/* Tabs */}
+      <div className="px-4 pt-4">
+        <div className="flex bg-muted rounded-full p-1 gap-1">
+          {(["vehicles", "rates"] as const).map((tab) => (
             <button
+              key={tab}
               type="button"
-              key={item}
-              className="text-left px-4 py-3 rounded-xl bg-brand-mint-badge text-foreground font-medium hover:opacity-80 transition-opacity"
-              onClick={() => toast.info(`${item} — coming soon`)}
+              data-ocid={`settings.${tab}.tab`}
+              onClick={() => setActiveTab(tab)}
+              className={`flex-1 py-2 rounded-full text-sm font-semibold capitalize transition-all ${
+                activeTab === tab
+                  ? "bg-primary text-primary-foreground shadow"
+                  : "text-muted-foreground hover:text-foreground"
+              }`}
             >
-              {item}
+              {tab === "vehicles" ? "🚛 Vehicles" : "💰 Rates"}
             </button>
           ))}
         </div>
-      </DialogContent>
-    </Dialog>
+      </div>
+
+      <main className="flex-1 px-4 pt-4 pb-8 flex flex-col gap-5 overflow-y-auto">
+        {activeTab === "vehicles" ? (
+          <>
+            {/* Add / Edit Form */}
+            <div className="bg-card rounded-2xl shadow p-4 flex flex-col gap-4 border border-border">
+              <h2 className="font-bold text-base text-foreground">
+                🚛 {editingId ? "Edit Vehicle" : "Add New Vehicle"}
+              </h2>
+
+              {/* Vehicle Type */}
+              <div>
+                <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2">
+                  Vehicle Type
+                </p>
+                <div className="flex gap-2">
+                  {(["Tractor", "12 Wheel"] as const).map((t) => (
+                    <button
+                      key={t}
+                      type="button"
+                      data-ocid="settings.vehicle_type.toggle"
+                      onClick={() => setVehicleType(t)}
+                      className={`flex-1 py-2 rounded-lg text-sm font-semibold border transition-all ${
+                        vehicleType === t
+                          ? "bg-primary text-primary-foreground border-primary"
+                          : "bg-background text-foreground border-border hover:border-primary/50"
+                      }`}
+                    >
+                      {t}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Vehicle Number */}
+              <div>
+                <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2">
+                  Vehicle Number
+                </p>
+                <input
+                  data-ocid="settings.vehicle_number.input"
+                  type="text"
+                  placeholder="e.g. WB 52 1234"
+                  value={vehicleNumber}
+                  onChange={(e) => setVehicleNumber(e.target.value)}
+                  className="w-full px-3 py-2.5 rounded-lg border border-border bg-background text-foreground text-sm focus:outline-none focus:ring-2 focus:ring-primary/30"
+                />
+              </div>
+
+              {/* Loading Labors */}
+              <div>
+                <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2">
+                  Loading Labors
+                </p>
+                <div className="flex gap-2 mb-2">
+                  <input
+                    data-ocid="settings.labor.input"
+                    type="text"
+                    placeholder="Enter labor name"
+                    value={laborInput}
+                    onChange={(e) => setLaborInput(e.target.value)}
+                    onKeyDown={(e) => e.key === "Enter" && addLabor()}
+                    className="flex-1 px-3 py-2.5 rounded-lg border border-border bg-background text-foreground text-sm focus:outline-none focus:ring-2 focus:ring-primary/30"
+                  />
+                  <button
+                    type="button"
+                    data-ocid="settings.labor.add_button"
+                    onClick={addLabor}
+                    className="w-10 h-10 rounded-lg bg-primary text-primary-foreground font-bold text-xl flex items-center justify-center hover:opacity-90 transition-opacity"
+                  >
+                    +
+                  </button>
+                </div>
+                {loadingLabors.length > 0 && (
+                  <div className="flex flex-wrap gap-2">
+                    {loadingLabors.map((name) => (
+                      <span
+                        key={name}
+                        className="inline-flex items-center gap-1 px-2.5 py-1 bg-primary/15 text-primary rounded-full text-xs font-semibold"
+                      >
+                        {name}
+                        <button
+                          type="button"
+                          data-ocid="settings.labor.delete_button"
+                          onClick={() => removeLabor(name)}
+                          className="ml-0.5 text-primary/70 hover:text-primary font-bold"
+                        >
+                          ×
+                        </button>
+                      </span>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              {/* Unloading Labors (independent) */}
+              <div>
+                <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2">
+                  Unloading Labors
+                </p>
+                {unloadingLabors.length > 0 ? (
+                  <div className="flex flex-wrap gap-2">
+                    {unloadingLabors.map((name) => (
+                      <span
+                        key={name}
+                        className="inline-flex items-center gap-1 px-2.5 py-1 bg-blue-100 text-blue-700 rounded-full text-xs font-semibold"
+                      >
+                        {name}
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setUnloadingLabors((prev) =>
+                              prev.filter((l) => l !== name),
+                            )
+                          }
+                          className="ml-0.5 text-blue-500 hover:text-blue-800 font-bold"
+                        >
+                          ×
+                        </button>
+                      </span>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="text-xs text-muted-foreground italic">
+                    No unloading labors added yet
+                  </p>
+                )}
+              </div>
+
+              {/* Save Button */}
+              <button
+                type="button"
+                data-ocid="settings.vehicle.save_button"
+                onClick={handleSave}
+                className="w-full py-3 rounded-xl bg-primary text-primary-foreground font-bold uppercase tracking-wider text-sm hover:opacity-90 transition-opacity"
+              >
+                {editingId ? "Update Vehicle" : "Save Vehicle"}
+              </button>
+              {editingId && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setEditingId(null);
+                    setVehicleNumber("");
+                    setLoadingLabors([]);
+                    setUnloadingLabors([]);
+                    setVehicleType("Tractor");
+                  }}
+                  className="w-full py-2.5 rounded-xl border border-border text-muted-foreground text-sm hover:opacity-80 transition-opacity"
+                >
+                  Cancel Edit
+                </button>
+              )}
+            </div>
+
+            {/* Vehicle List */}
+            {vehicles.length > 0 && (
+              <div className="flex flex-col gap-3">
+                <h3 className="text-sm font-bold text-muted-foreground uppercase tracking-wider">
+                  Saved Vehicles
+                </h3>
+                {vehicles.map((v) => (
+                  <div
+                    key={v.id}
+                    data-ocid="settings.vehicle.card"
+                    className="bg-card rounded-2xl shadow border border-border p-4 flex flex-col gap-3"
+                  >
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <span className="font-bold text-base text-foreground">
+                          {v.number}
+                        </span>
+                        <span className="px-2 py-0.5 bg-primary/15 text-primary rounded-full text-xs font-semibold">
+                          {v.type}
+                        </span>
+                      </div>
+                      <div className="flex gap-2">
+                        <button
+                          type="button"
+                          data-ocid="settings.vehicle.edit_button"
+                          onClick={() => handleEdit(v)}
+                          className="p-1.5 rounded-lg bg-blue-50 text-blue-600 hover:bg-blue-100 transition-colors"
+                        >
+                          <Pencil size={14} />
+                        </button>
+                        <button
+                          type="button"
+                          data-ocid="settings.vehicle.delete_button"
+                          onClick={() => handleDelete(v.id)}
+                          className="p-1.5 rounded-lg bg-red-50 text-red-500 hover:bg-red-100 transition-colors"
+                        >
+                          <Trash2 size={14} />
+                        </button>
+                      </div>
+                    </div>
+                    {v.loadingLabors.length > 0 && (
+                      <>
+                        <div>
+                          <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-1.5">
+                            Loading
+                          </p>
+                          <div className="flex flex-wrap gap-1.5">
+                            {v.loadingLabors.map((n) => (
+                              <span
+                                key={n}
+                                className="px-2 py-0.5 bg-primary/15 text-primary rounded-full text-xs font-semibold"
+                              >
+                                {n}
+                              </span>
+                            ))}
+                          </div>
+                        </div>
+                        {(v.unloadingLabors ?? []).length > 0 && (
+                          <div>
+                            <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-1.5">
+                              Unloading
+                            </p>
+                            <div className="flex flex-wrap gap-1.5">
+                              {(v.unloadingLabors ?? []).map((n) => (
+                                <span
+                                  key={n}
+                                  className="px-2 py-0.5 bg-blue-100 text-blue-700 rounded-full text-xs font-semibold"
+                                >
+                                  {n}
+                                </span>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+                      </>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {vehicles.length === 0 && (
+              <div
+                data-ocid="settings.vehicles.empty_state"
+                className="flex flex-col items-center justify-center py-12 gap-3 text-center"
+              >
+                <div className="w-16 h-16 rounded-2xl bg-brand-mint-badge flex items-center justify-center">
+                  <span className="text-3xl">🚛</span>
+                </div>
+                <p className="text-sm font-semibold text-muted-foreground">
+                  No vehicles saved yet
+                </p>
+              </div>
+            )}
+          </>
+        ) : (
+          <div data-ocid="settings.rates.panel" className="flex flex-col gap-4">
+            {/* Vehicle type toggle */}
+            <div className="flex gap-2 bg-brand-mint-badge rounded-xl p-1">
+              {(["Tractor", "12 Wheel"] as const).map((t) => (
+                <button
+                  key={t}
+                  type="button"
+                  onClick={() => setRateVehicleType(t)}
+                  className={`flex-1 py-2 rounded-lg text-sm font-semibold transition-all ${rateVehicleType === t ? "bg-brand-primary text-white shadow" : "text-brand-primary"}`}
+                >
+                  {t}
+                </button>
+              ))}
+            </div>
+
+            {/* Rate inputs */}
+            <div className="bg-white rounded-2xl shadow p-4 flex flex-col gap-3">
+              {rateVehicleType === "Tractor" ? (
+                <>
+                  <div>
+                    <label
+                      htmlFor="rateField1"
+                      className="text-xs font-semibold text-muted-foreground mb-1 block"
+                    >
+                      লোকাল পার হাজার ইট রেট
+                    </label>
+                    <input
+                      type="number"
+                      inputMode="numeric"
+                      placeholder="Enter rate"
+                      value={rates.tractorLocalRate}
+                      onChange={(e) =>
+                        setRates((r) => ({
+                          ...r,
+                          tractorLocalRate: e.target.value,
+                        }))
+                      }
+                      className="w-full border border-border rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-primary"
+                    />
+                  </div>
+                  <div>
+                    <label
+                      htmlFor="rateField2"
+                      className="text-xs font-semibold text-muted-foreground mb-1 block"
+                    >
+                      আউট সাইড পার হাজার ইট রেট
+                    </label>
+                    <input
+                      type="number"
+                      inputMode="numeric"
+                      placeholder="Enter rate"
+                      value={rates.tractorOutsideRate}
+                      onChange={(e) =>
+                        setRates((r) => ({
+                          ...r,
+                          tractorOutsideRate: e.target.value,
+                        }))
+                      }
+                      className="w-full border border-border rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-primary"
+                    />
+                  </div>
+                  <div>
+                    <label
+                      htmlFor="rateField3"
+                      className="text-xs font-semibold text-muted-foreground mb-1 block"
+                    >
+                      100 Safety Bats রেট
+                    </label>
+                    <input
+                      type="number"
+                      inputMode="numeric"
+                      placeholder="Enter rate"
+                      value={rates.tractorSafetyBatsRate}
+                      onChange={(e) =>
+                        setRates((r) => ({
+                          ...r,
+                          tractorSafetyBatsRate: e.target.value,
+                        }))
+                      }
+                      className="w-full border border-border rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-primary"
+                    />
+                  </div>
+                </>
+              ) : (
+                <>
+                  <div>
+                    <label
+                      htmlFor="rateField4"
+                      className="text-xs font-semibold text-muted-foreground mb-1 block"
+                    >
+                      পার হাজার ইট রেট
+                    </label>
+                    <input
+                      type="number"
+                      inputMode="numeric"
+                      placeholder="Enter rate"
+                      value={rates.wheelLocalRate}
+                      onChange={(e) =>
+                        setRates((r) => ({
+                          ...r,
+                          wheelLocalRate: e.target.value,
+                        }))
+                      }
+                      className="w-full border border-border rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-primary"
+                    />
+                  </div>
+                  <div>
+                    <label
+                      htmlFor="rateField5"
+                      className="text-xs font-semibold text-muted-foreground mb-1 block"
+                    >
+                      100 Safety Bats রেট
+                    </label>
+                    <input
+                      type="number"
+                      inputMode="numeric"
+                      placeholder="Enter rate"
+                      value={rates.wheelSafetyBatsRate}
+                      onChange={(e) =>
+                        setRates((r) => ({
+                          ...r,
+                          wheelSafetyBatsRate: e.target.value,
+                        }))
+                      }
+                      className="w-full border border-border rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-primary"
+                    />
+                  </div>
+                </>
+              )}
+              <button
+                type="button"
+                data-ocid="settings.rates.save_button"
+                onClick={() => {
+                  saveRates(rates);
+                  toast.success("Rates saved!");
+                }}
+                className="mt-1 w-full bg-brand-primary text-white rounded-xl py-2.5 text-sm font-bold shadow hover:opacity-90 transition-all"
+              >
+                Save Rates
+              </button>
+            </div>
+
+            {/* Summary */}
+            {(rates.tractorLocalRate ||
+              rates.tractorOutsideRate ||
+              rates.tractorSafetyBatsRate ||
+              rates.wheelLocalRate ||
+              rates.wheelSafetyBatsRate) && (
+              <div className="bg-white rounded-2xl shadow p-4 flex flex-col gap-3">
+                <p className="text-xs font-bold text-brand-primary uppercase tracking-wide">
+                  Saved Rates Summary
+                </p>
+                {(rates.tractorLocalRate ||
+                  rates.tractorOutsideRate ||
+                  rates.tractorSafetyBatsRate) && (
+                  <div>
+                    <p className="text-xs font-bold text-foreground mb-1">
+                      🚜 Tractor
+                    </p>
+                    {rates.tractorLocalRate && (
+                      <p className="text-xs text-muted-foreground">
+                        লোকাল পার হাজার ইট:{" "}
+                        <span className="font-semibold text-foreground">
+                          {rates.tractorLocalRate}
+                        </span>
+                      </p>
+                    )}
+                    {rates.tractorOutsideRate && (
+                      <p className="text-xs text-muted-foreground">
+                        আউট সাইড পার হাজার ইট:{" "}
+                        <span className="font-semibold text-foreground">
+                          {rates.tractorOutsideRate}
+                        </span>
+                      </p>
+                    )}
+                    {rates.tractorSafetyBatsRate && (
+                      <p className="text-xs text-muted-foreground">
+                        100 Safety Bats:{" "}
+                        <span className="font-semibold text-foreground">
+                          {rates.tractorSafetyBatsRate}
+                        </span>
+                      </p>
+                    )}
+                  </div>
+                )}
+                {(rates.wheelLocalRate || rates.wheelSafetyBatsRate) && (
+                  <div>
+                    <p className="text-xs font-bold text-foreground mb-1">
+                      🚛 12 Wheel
+                    </p>
+                    {rates.wheelLocalRate && (
+                      <p className="text-xs text-muted-foreground">
+                        পার হাজার ইট:{" "}
+                        <span className="font-semibold text-foreground">
+                          {rates.wheelLocalRate}
+                        </span>
+                      </p>
+                    )}
+                    {rates.wheelSafetyBatsRate && (
+                      <p className="text-xs text-muted-foreground">
+                        100 Safety Bats:{" "}
+                        <span className="font-semibold text-foreground">
+                          {rates.wheelSafetyBatsRate}
+                        </span>
+                      </p>
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        )}
+      </main>
+    </motion.div>
   );
 }
 
@@ -758,6 +1394,275 @@ function AddPaymentDialog({
   );
 }
 
+// ─── Pending Order Detail Page ────────────────────────────────────────────────
+
+function PendingOrderDetailPage({
+  order,
+  onBack,
+  onSave,
+}: {
+  order: Order;
+  onBack: () => void;
+  onSave: (updated: Order) => void;
+}) {
+  const [selectedBricks, setSelectedBricks] = useState<Set<BrickType>>(
+    new Set(),
+  );
+  const [deliveryQtys, setDeliveryQtys] = useState<
+    Partial<Record<BrickType, number>>
+  >({});
+
+  const dueBricks = order.totalBricks;
+
+  const totalDeliveryBricks = BRICK_TYPES.reduce((sum, type) => {
+    if (type === "Bats") return sum;
+    if (selectedBricks.has(type)) return sum + (deliveryQtys[type] || 0);
+    return sum;
+  }, 0);
+
+  const toggleBrick = (type: BrickType) => {
+    setSelectedBricks((prev) => {
+      const next = new Set(prev);
+      if (next.has(type)) next.delete(type);
+      else next.add(type);
+      return next;
+    });
+  };
+
+  const setQty = (type: BrickType, val: string) => {
+    setDeliveryQtys((prev) => ({ ...prev, [type]: Number(val) || 0 }));
+  };
+
+  const handleSave = () => {
+    onSave(order);
+    toast.success("Pending order updated!");
+    onBack();
+  };
+
+  return (
+    <motion.div
+      key="pending-order"
+      initial={{ x: 60, opacity: 0 }}
+      animate={{ x: 0, opacity: 1 }}
+      exit={{ x: 60, opacity: 0 }}
+      transition={{ duration: 0.25, ease: "easeOut" }}
+      className="min-h-screen bg-background flex flex-col"
+    >
+      {/* Header */}
+      <header className="bg-primary text-primary-foreground px-4 py-4 flex items-center gap-3 sticky top-0 z-10">
+        <button
+          type="button"
+          data-ocid="pending_order.back.button"
+          onClick={onBack}
+          className="p-1.5 rounded-lg hover:bg-white/10 transition-colors"
+        >
+          <ArrowLeft size={20} />
+        </button>
+        <h1 className="text-lg font-bold uppercase tracking-widest">
+          PENDING ORDER
+        </h1>
+        <span className="ml-auto text-[10px] font-extrabold uppercase tracking-wider bg-destructive px-3 py-1 rounded-full">
+          PENDING
+        </span>
+      </header>
+
+      <div className="flex-1 overflow-y-auto pb-8">
+        {/* Order Date Row */}
+        <div className="mx-4 mt-4 bg-card rounded-xl shadow-card px-4 py-3 flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <CalendarDays size={18} className="text-primary" />
+            <span className="text-xs font-bold uppercase tracking-wide text-muted-foreground">
+              ORDER DATE
+            </span>
+          </div>
+          <span className="text-sm font-extrabold text-foreground">
+            {formatDateShort(order.orderDate)}
+          </span>
+        </div>
+
+        {/* Customer Information */}
+        <div className="mx-4 mt-4">
+          <p className="text-xs font-bold uppercase tracking-widest text-primary mb-2 px-1">
+            CUSTOMER INFORMATION
+          </p>
+          <div className="bg-card rounded-xl shadow-card px-4 py-4 flex flex-col gap-3">
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <Label className="text-[10px] font-bold uppercase tracking-wide text-muted-foreground">
+                  Name
+                </Label>
+                <div className="mt-1 h-10 rounded-lg border border-border bg-muted/40 px-3 flex items-center">
+                  <span className="text-sm font-semibold text-foreground truncate">
+                    {order.customerName}
+                  </span>
+                </div>
+              </div>
+              <div>
+                <Label className="text-[10px] font-bold uppercase tracking-wide text-muted-foreground">
+                  Address
+                </Label>
+                <div className="mt-1 h-10 rounded-lg border border-border bg-muted/40 px-3 flex items-center">
+                  <span className="text-sm font-semibold text-foreground truncate">
+                    {order.address || "—"}
+                  </span>
+                </div>
+              </div>
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <Label className="text-[10px] font-bold uppercase tracking-wide text-muted-foreground">
+                  Phone
+                </Label>
+                <div className="mt-1 h-10 rounded-lg border border-border bg-muted/40 px-3 flex items-center">
+                  <span className="text-sm font-semibold text-foreground truncate">
+                    {order.phoneNumber}
+                  </span>
+                </div>
+              </div>
+              <div>
+                <Label className="text-[10px] font-bold uppercase tracking-wide text-muted-foreground">
+                  Invoice
+                </Label>
+                <div className="mt-1 h-10 rounded-lg border border-border bg-muted/40 px-3 flex items-center">
+                  <span className="text-sm font-semibold text-foreground truncate">
+                    {order.invoiceNumber}
+                  </span>
+                </div>
+              </div>
+            </div>
+
+            {/* Due Summary Box */}
+            <div
+              className="mt-1 rounded-2xl px-4 pt-3 pb-3"
+              style={{
+                background: "linear-gradient(135deg, #4ade80 0%, #22c55e 100%)",
+                minHeight: "110px",
+                maxHeight: "130px",
+              }}
+            >
+              {/* Top row: Due Bricks | Due Amount */}
+              <div className="flex items-start justify-between">
+                <div>
+                  <p className="text-[10px] font-bold uppercase tracking-widest text-white/80 mb-0.5">
+                    Due Bricks
+                  </p>
+                  <p className="text-[28px] font-extrabold text-white leading-none">
+                    {dueBricks.toLocaleString()}
+                  </p>
+                </div>
+                <div className="text-right">
+                  <p className="text-[10px] font-bold uppercase tracking-widest text-white/80 mb-0.5">
+                    Due Amount
+                  </p>
+                  <span className="inline-block bg-white rounded-full px-3 py-1 text-base font-extrabold text-red-600 leading-tight shadow-sm">
+                    ₹{order.dueAmount.toLocaleString()}
+                  </span>
+                </div>
+              </div>
+              {/* Per-brick breakdown */}
+              {order.bricks.filter((b) => b.type !== "Bats").length > 0 && (
+                <div className="mt-2 pt-2 border-t border-white/30 flex flex-row flex-wrap gap-x-4 gap-y-0.5">
+                  {order.bricks
+                    .filter((b) => b.type !== "Bats")
+                    .map((b) => (
+                      <span
+                        key={b.type}
+                        className="text-[12px] font-semibold text-white"
+                      >
+                        {b.type}:{" "}
+                        <span className="font-extrabold">
+                          {b.quantity.toLocaleString()}
+                        </span>
+                      </span>
+                    ))}
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+
+        {/* Brick Types — delivery selection */}
+        <div className="mx-4 mt-4">
+          <p className="text-xs font-bold uppercase tracking-widest text-primary mb-2 px-1">
+            BRICK TYPES
+          </p>
+          <div className="grid grid-cols-2 gap-2">
+            {BRICK_TYPES.map((type) => {
+              const isSelected = selectedBricks.has(type);
+              const isBats = type === "Bats";
+              return (
+                <div key={type} className="flex flex-col">
+                  <button
+                    type="button"
+                    data-ocid={`pending_order.brick.${type.toLowerCase().replace(/ /g, "_")}.toggle`}
+                    onClick={() => toggleBrick(type)}
+                    className={[
+                      "w-full rounded-xl px-3 py-2.5 text-sm font-bold transition-all duration-150 select-none border",
+                      isSelected
+                        ? "bg-primary text-primary-foreground border-primary shadow-sm"
+                        : "bg-card text-foreground border-border hover:border-primary/40",
+                    ].join(" ")}
+                  >
+                    {type}
+                  </button>
+                  <AnimatePresence>
+                    {isSelected && (
+                      <motion.div
+                        initial={{ height: 0, opacity: 0 }}
+                        animate={{ height: "auto", opacity: 1 }}
+                        exit={{ height: 0, opacity: 0 }}
+                        transition={{ duration: 0.15 }}
+                        className="overflow-hidden"
+                      >
+                        <div className="mt-1.5 bg-card rounded-lg border border-primary/30 px-2 py-1.5">
+                          <Label className="text-[10px] font-bold uppercase tracking-wide text-primary">
+                            {isBats ? "Safety" : "Delivery Qty"}
+                          </Label>
+                          <Input
+                            data-ocid={`pending_order.brick.${type.toLowerCase().replace(/ /g, "_")}.input`}
+                            type="number"
+                            min="0"
+                            placeholder="0"
+                            className="mt-0.5 h-8 rounded-md border-border bg-background text-sm"
+                            value={deliveryQtys[type] || ""}
+                            onChange={(e) => setQty(type, e.target.value)}
+                          />
+                        </div>
+                      </motion.div>
+                    )}
+                  </AnimatePresence>
+                </div>
+              );
+            })}
+          </div>
+
+          {/* Total Bricks summary */}
+          <div className="mt-3 bg-primary/10 border border-primary/30 rounded-xl px-4 py-3 flex items-center justify-between">
+            <span className="text-sm font-bold uppercase tracking-wide text-primary">
+              TOTAL BRICKS
+            </span>
+            <span className="text-xl font-extrabold text-primary">
+              {totalDeliveryBricks.toLocaleString()}
+            </span>
+          </div>
+        </div>
+
+        {/* Save Button */}
+        <div className="mx-4 mt-6">
+          <button
+            type="button"
+            data-ocid="pending_order.save.submit_button"
+            onClick={handleSave}
+            className="w-full py-4 rounded-full bg-primary text-primary-foreground text-base font-extrabold uppercase tracking-widest shadow-card hover:opacity-90 active:scale-95 transition-all"
+          >
+            SAVE PENDING
+          </button>
+        </div>
+      </div>
+    </motion.div>
+  );
+}
+
 // ─── Total Orders Page ────────────────────────────────────────────────────────
 
 function TotalOrdersPage({
@@ -765,11 +1670,13 @@ function TotalOrdersPage({
   onBack,
   onUpdateOrder,
   onDeleteOrder,
+  onViewPending,
 }: {
   orders: Order[];
   onBack: () => void;
   onUpdateOrder: (updatedOrder: Order) => void;
   onDeleteOrder: (orderId: string) => void;
+  onViewPending: (order: Order) => void;
 }) {
   const [search, setSearch] = useState("");
   const [filterFrom, setFilterFrom] = useState("");
@@ -993,9 +1900,15 @@ function TotalOrdersPage({
                     <p className="text-[10px] font-extrabold uppercase tracking-wide text-foreground">
                       BRICK TYPES &amp; QTY
                     </p>
-                    <span className="text-[9px] font-extrabold uppercase tracking-wide bg-destructive text-white px-2.5 py-0.5 rounded-full">
+                    {/* Clickable PENDING badge */}
+                    <button
+                      type="button"
+                      data-ocid={`total_orders.item.${i + 1}.pending.button`}
+                      onClick={() => onViewPending(order)}
+                      className="text-[9px] font-extrabold uppercase tracking-wide bg-destructive text-white px-2.5 py-0.5 rounded-full hover:opacity-80 active:scale-95 transition-all cursor-pointer"
+                    >
                       PENDING
-                    </span>
+                    </button>
                   </div>
 
                   {/* Brick pills */}
@@ -1085,13 +1998,407 @@ function TotalOrdersPage({
   );
 }
 
+// ─── PendingDeliveryPage ──────────────────────────────────────────────────────
+
+function PendingDeliveryPage({
+  orders,
+  onBack,
+  onDelete,
+  onMarkDelivered,
+  onEditDelivery,
+}: {
+  orders: Order[];
+  onBack: () => void;
+  onDelete: (orderId: string) => void;
+  onMarkDelivered: (orderId: string) => void;
+  onEditDelivery: (order: Order) => void;
+}) {
+  const [deleteTarget, setDeleteTarget] = useState<Order | null>(null);
+  const sorted = [...orders].sort(
+    (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
+  );
+
+  const handlePrint = () => {
+    window.print();
+  };
+
+  const handlePDF = async () => {
+    const element = document.querySelector(".print-list") as HTMLElement;
+    if (!element) return;
+    try {
+      const canvas = await html2canvas(element, { scale: 2, useCORS: true });
+      const imgData = canvas.toDataURL("image/png");
+      const pdf = new jsPDF({
+        orientation: "portrait",
+        unit: "px",
+        format: "a4",
+      });
+      const pageWidth = pdf.internal.pageSize.getWidth();
+      const pageHeight = pdf.internal.pageSize.getHeight();
+      const imgWidth = pageWidth;
+      const imgHeight = (canvas.height * pageWidth) / canvas.width;
+      let heightLeft = imgHeight;
+      let position = 0;
+      pdf.addImage(imgData, "PNG", 0, position, imgWidth, imgHeight);
+      heightLeft -= pageHeight;
+      while (heightLeft > 0) {
+        position = heightLeft - imgHeight;
+        pdf.addPage();
+        pdf.addImage(imgData, "PNG", 0, position, imgWidth, imgHeight);
+        heightLeft -= pageHeight;
+      }
+      pdf.save("pending-deliveries.pdf");
+    } catch (_err) {
+      toast.error("PDF তৈরিতে সমস্যা হয়েছে");
+    }
+  };
+
+  const getBrickInfo = (order: Order) => {
+    if (!order.bricks || order.bricks.length === 0) return "—";
+    return order.bricks
+      .map((b) => {
+        const qty = b.type === "Bats" ? (b.safety ?? 0) : b.quantity;
+        return `${b.type} - ${qty.toLocaleString()}`;
+      })
+      .join(", ");
+  };
+
+  return (
+    <>
+      <style>{`
+        @media print {
+          .no-print { display: none !important; }
+          .print-list { padding: 0 !important; }
+          body { background: white !important; }
+        }
+      `}</style>
+      <motion.div
+        key="pending-delivery"
+        initial={{ x: 60, opacity: 0 }}
+        animate={{ x: 0, opacity: 1 }}
+        exit={{ x: 60, opacity: 0 }}
+        transition={{ duration: 0.25, ease: "easeOut" }}
+        className="min-h-screen bg-green-50 flex flex-col"
+      >
+        {/* Header */}
+        <header className="no-print bg-white px-4 pt-5 pb-4 shadow-sm border-b border-green-100 sticky top-0 z-10">
+          <div className="flex items-center gap-3">
+            <button
+              type="button"
+              data-ocid="pending_delivery.nav.back.button"
+              onClick={onBack}
+              className="p-2 rounded-xl bg-green-50 hover:bg-green-100 transition-colors text-green-700 shrink-0"
+            >
+              <ArrowLeft size={20} />
+            </button>
+            <div className="flex-1 min-w-0">
+              <h1 className="text-lg font-bold text-gray-900 leading-tight">
+                Pending List
+              </h1>
+              <p className="text-sm text-green-600 font-medium mt-0.5">
+                {sorted.length} Pending{" "}
+                {sorted.length === 1 ? "Delivery" : "Deliveries"}
+              </p>
+            </div>
+            <div className="flex items-center gap-2 shrink-0">
+              <button
+                type="button"
+                data-ocid="pending_delivery.print.button"
+                onClick={handlePrint}
+                className="px-3 py-1.5 rounded-lg bg-green-50 border border-green-200 text-green-700 text-xs font-semibold hover:bg-green-100 transition-colors"
+              >
+                🖨 Print
+              </button>
+              <button
+                type="button"
+                data-ocid="pending_delivery.pdf.button"
+                onClick={handlePDF}
+                className="px-3 py-1.5 rounded-lg bg-green-600 text-white text-xs font-semibold hover:bg-green-700 transition-colors"
+              >
+                📄 PDF
+              </button>
+            </div>
+          </div>
+        </header>
+
+        <main className="flex-1 p-4 flex flex-col gap-3 print-list">
+          {sorted.length === 0 ? (
+            <div
+              data-ocid="pending_delivery.empty_state"
+              className="flex-1 flex flex-col items-center justify-center gap-4 py-20"
+            >
+              <div className="w-20 h-20 rounded-2xl bg-green-100 flex items-center justify-center">
+                <Truck size={36} className="text-green-600" />
+              </div>
+              <p className="text-base font-bold text-gray-800 uppercase tracking-wide">
+                No Pending Deliveries
+              </p>
+              <p className="text-sm text-gray-500 text-center">
+                Save a pending order to see it here.
+              </p>
+            </div>
+          ) : (
+            <AnimatePresence>
+              {sorted.map((order, idx) => (
+                <motion.div
+                  key={order.id}
+                  data-ocid={`pending_delivery.item.${idx + 1}`}
+                  initial={{ opacity: 0, y: 14 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: -10 }}
+                  transition={{ delay: idx * 0.04, duration: 0.22 }}
+                  className="bg-white rounded-2xl shadow-md border border-green-100 overflow-hidden"
+                >
+                  {/* Card Content */}
+                  <div className="px-4 pt-4 pb-2 relative">
+                    {/* Local Badge */}
+                    {order.locationType === "Local" && (
+                      <span className="absolute top-4 right-4 bg-green-100 border border-green-300 text-green-700 text-[11px] font-bold px-3 py-1 rounded-full">
+                        Local
+                      </span>
+                    )}
+
+                    {/* Row 1: Name | Location | Date */}
+                    <div className="flex flex-wrap items-center gap-2 mb-2 pr-16">
+                      <span className="text-[15px] font-extrabold text-gray-900 truncate max-w-[130px]">
+                        {order.customerName}
+                      </span>
+                      {order.address && (
+                        <span className="flex items-center gap-0.5 text-[13px] text-gray-500">
+                          <svg
+                            xmlns="http://www.w3.org/2000/svg"
+                            width="13"
+                            height="13"
+                            viewBox="0 0 24 24"
+                            fill="none"
+                            stroke="currentColor"
+                            strokeWidth="2"
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            className="text-gray-400"
+                            aria-label="Location"
+                            role="img"
+                          >
+                            <path d="M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0Z" />
+                            <circle cx="12" cy="10" r="3" />
+                          </svg>
+                          <span className="truncate max-w-[90px]">
+                            {order.address}
+                          </span>
+                        </span>
+                      )}
+                      <span className="flex items-center gap-0.5 text-[13px] text-gray-500">
+                        <svg
+                          xmlns="http://www.w3.org/2000/svg"
+                          width="13"
+                          height="13"
+                          viewBox="0 0 24 24"
+                          fill="none"
+                          stroke="currentColor"
+                          strokeWidth="2"
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          className="text-gray-400"
+                          aria-label="Date"
+                          role="img"
+                        >
+                          <rect
+                            width="18"
+                            height="18"
+                            x="3"
+                            y="4"
+                            rx="2"
+                            ry="2"
+                          />
+                          <line x1="16" x2="16" y1="2" y2="6" />
+                          <line x1="8" x2="8" y1="2" y2="6" />
+                          <line x1="3" x2="21" y1="10" y2="10" />
+                        </svg>
+                        {order.orderDate}
+                      </span>
+                    </div>
+
+                    {/* Row 2: Phone | Bricks | INV# | Amount */}
+                    <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5">
+                      <a
+                        href={`tel:${order.phoneNumber}`}
+                        data-ocid={`pending_delivery.call.button.${idx + 1}`}
+                        className="flex items-center gap-1 text-green-700 font-semibold text-[13px] hover:underline"
+                      >
+                        <Phone size={13} className="text-green-600" />
+                        {order.phoneNumber}
+                      </a>
+                      <span className="flex items-center gap-1 text-[13px] text-gray-600">
+                        <Layers size={13} className="text-gray-400" />
+                        <span className="truncate max-w-[140px]">
+                          {getBrickInfo(order)}
+                        </span>
+                      </span>
+                      {order.invoiceNumber && (
+                        <span className="flex items-center gap-1.5">
+                          <span className="bg-indigo-100 text-indigo-700 text-[11px] font-bold px-2 py-0.5 rounded-md">
+                            INV#
+                          </span>
+                          <span className="text-[13px] font-semibold text-gray-700">
+                            {order.invoiceNumber}
+                          </span>
+                        </span>
+                      )}
+                      <span className="flex items-center gap-1 text-[13px] font-bold text-gray-900">
+                        <Wallet size={13} className="text-gray-400" />
+                        {order.totalAmount.toLocaleString()}
+                      </span>
+                    </div>
+                  </div>
+
+                  {/* Divider */}
+                  <div className="mx-4 border-t border-gray-100 mt-3" />
+
+                  {/* Action Buttons */}
+                  <div className="no-print px-3 py-3 flex gap-2">
+                    <button
+                      type="button"
+                      data-ocid={`pending_delivery.edit_button.${idx + 1}`}
+                      onClick={() => onEditDelivery(order)}
+                      className="flex-1 flex items-center justify-center gap-1.5 py-2.5 rounded-full bg-green-100 text-green-700 font-bold text-[13px] hover:bg-green-200 transition-colors"
+                    >
+                      <Pencil size={14} />
+                      Edit
+                    </button>
+                    <button
+                      type="button"
+                      data-ocid={`pending_delivery.delete_button.${idx + 1}`}
+                      onClick={() => setDeleteTarget(order)}
+                      className="flex-1 flex items-center justify-center gap-1.5 py-2.5 rounded-full bg-red-50 text-red-500 font-bold text-[13px] hover:bg-red-100 transition-colors border border-red-100"
+                    >
+                      <Trash2 size={14} />
+                      Delete
+                    </button>
+                    <button
+                      type="button"
+                      data-ocid={`pending_delivery.mark_delivered_button.${idx + 1}`}
+                      onClick={() => onMarkDelivered(order.id)}
+                      className="flex-1 flex items-center justify-center gap-1.5 py-2.5 rounded-full bg-green-600 text-white font-bold text-[13px] hover:bg-green-700 transition-colors"
+                    >
+                      <CheckCircle size={14} />
+                      Complete
+                    </button>
+                  </div>
+                </motion.div>
+              ))}
+            </AnimatePresence>
+          )}
+        </main>
+
+        {/* Delete Confirmation */}
+        <AlertDialog
+          open={!!deleteTarget}
+          onOpenChange={(open) => {
+            if (!open) setDeleteTarget(null);
+          }}
+        >
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>Delete Order?</AlertDialogTitle>
+              <AlertDialogDescription>
+                Are you sure you want to delete the order for{" "}
+                <strong>{deleteTarget?.customerName}</strong>? This action
+                cannot be undone.
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel
+                data-ocid="pending_delivery.delete.cancel_button"
+                onClick={() => setDeleteTarget(null)}
+              >
+                Cancel
+              </AlertDialogCancel>
+              <AlertDialogAction
+                data-ocid="pending_delivery.delete.confirm_button"
+                className="bg-red-600 hover:bg-red-700 text-white"
+                onClick={() => {
+                  if (deleteTarget) {
+                    onDelete(deleteTarget.id);
+                    setDeleteTarget(null);
+                  }
+                }}
+              >
+                Delete
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
+      </motion.div>
+    </>
+  );
+}
+
 // ─── App ──────────────────────────────────────────────────────────────────────
 
 export default function App() {
   const [view, setView] = useState<View>("dashboard");
-  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [pendingOrderReturnView, setPendingOrderReturnView] =
+    useState<View>("total-orders");
+  const navStackRef = useRef<View[]>([]);
+
+  useEffect(() => {
+    const handlePopState = () => {
+      const prev = navStackRef.current.pop();
+      if (prev) {
+        setView(prev);
+        setSelectedPendingOrder(null);
+      } else {
+        setView("dashboard");
+      }
+    };
+    window.addEventListener("popstate", handlePopState);
+    return () => window.removeEventListener("popstate", handlePopState);
+  }, []);
   const [reportsOpen, setReportsOpen] = useState(false);
-  const [orders, setOrders] = useState<Order[]>([]);
+  const [orders, setOrders] = useState<Order[]>(() => {
+    try {
+      const saved = localStorage.getItem("sbco_orders");
+      return saved ? JSON.parse(saved) : [];
+    } catch {
+      return [];
+    }
+  });
+  const [completedDeliveries, setCompletedDeliveries] = useState<Order[]>(
+    () => {
+      try {
+        const saved = localStorage.getItem("sbco_completed");
+        return saved ? JSON.parse(saved) : [];
+      } catch {
+        return [];
+      }
+    },
+  );
+  useEffect(() => {
+    localStorage.setItem("sbco_orders", JSON.stringify(orders));
+  }, [orders]);
+
+  useEffect(() => {
+    localStorage.setItem("sbco_completed", JSON.stringify(completedDeliveries));
+  }, [completedDeliveries]);
+
+  const [pendingDeliveries, setPendingDeliveries] = useState<Order[]>(() => {
+    try {
+      const saved = localStorage.getItem("sbco_pending_deliveries");
+      return saved ? JSON.parse(saved) : [];
+    } catch {
+      return [];
+    }
+  });
+
+  useEffect(() => {
+    localStorage.setItem(
+      "sbco_pending_deliveries",
+      JSON.stringify(pendingDeliveries),
+    );
+  }, [pendingDeliveries]);
+
+  const [selectedPendingOrder, setSelectedPendingOrder] =
+    useState<Order | null>(null);
   const now = useLiveClock();
 
   const addOrder = (order: Order) => {
@@ -1104,6 +2411,27 @@ export default function App() {
 
   const deleteOrder = (orderId: string) => {
     setOrders((prev) => prev.filter((o) => o.id !== orderId));
+  };
+
+  const markAsDelivered = (orderId: string) => {
+    const order = pendingDeliveries.find((o) => o.id === orderId);
+    if (order) {
+      setPendingDeliveries((prev) => prev.filter((o) => o.id !== orderId));
+      setCompletedDeliveries((prev) => [order, ...prev]);
+      toast.success(`${order.customerName} marked as delivered!`);
+    }
+  };
+
+  const deleteDelivery = (orderId: string) => {
+    setPendingDeliveries((prev) => prev.filter((o) => o.id !== orderId));
+  };
+
+  const handleViewPending = (order: Order) => {
+    setSelectedPendingOrder(order);
+    setPendingOrderReturnView("total-orders");
+    navStackRef.current.push(view);
+    window.history.pushState({ view: "pending-order" }, "");
+    setView("pending-order");
   };
 
   const handleCardClick = (name: string) => {
@@ -1160,15 +2488,15 @@ export default function App() {
                   data-ocid="pending_delivery.card"
                   icon={<Truck size={iconSize} className={iconClass} />}
                   title="Pending Delivery"
-                  value="0"
+                  value={String(pendingDeliveries.length)}
                   clickable
-                  onClick={() => handleCardClick("Pending Delivery")}
+                  onClick={() => setView("pending-delivery")}
                 />
                 <StatCard
                   data-ocid="complete_delivery.card"
                   icon={<Package size={iconSize} className={iconClass} />}
                   title="Complete Delivery"
-                  value="0"
+                  value={String(completedDeliveries.length)}
                   clickable
                   onClick={() => handleCardClick("Complete Delivery")}
                 />
@@ -1191,7 +2519,7 @@ export default function App() {
                   icon={<Settings size={20} className={iconClass} />}
                   title="Settings"
                   subtitle="Tap to open"
-                  onClick={() => setSettingsOpen(true)}
+                  onClick={() => setView("settings")}
                 />
                 <ActionCard
                   data-ocid="reports.open_modal_button"
@@ -1251,7 +2579,40 @@ export default function App() {
             onBack={() => setView("dashboard")}
             onUpdateOrder={updateOrder}
             onDeleteOrder={deleteOrder}
+            onViewPending={handleViewPending}
           />
+        ) : view === "pending-delivery" ? (
+          <PendingDeliveryPage
+            key="pending-delivery"
+            orders={pendingDeliveries}
+            onBack={() => setView("dashboard")}
+            onDelete={deleteDelivery}
+            onMarkDelivered={markAsDelivered}
+            onEditDelivery={(order) => {
+              setSelectedPendingOrder(order);
+              setPendingOrderReturnView("pending-delivery");
+              navStackRef.current.push("pending-delivery");
+              window.history.pushState({ view: "pending-order" }, "");
+              setView("pending-order");
+            }}
+          />
+        ) : view === "pending-order" && selectedPendingOrder ? (
+          <PendingOrderDetailPage
+            key="pending-order"
+            order={selectedPendingOrder}
+            onBack={() => {
+              setView(pendingOrderReturnView);
+              setSelectedPendingOrder(null);
+            }}
+            onSave={(updated) => {
+              updateOrder(updated);
+              setPendingDeliveries((prev) => [updated, ...prev]);
+              setView(pendingOrderReturnView);
+              setSelectedPendingOrder(null);
+            }}
+          />
+        ) : view === "settings" ? (
+          <SettingsPage key="settings" onBack={() => setView("dashboard")} />
         ) : (
           <motion.div
             key="direct-delivery"
@@ -1289,10 +2650,6 @@ export default function App() {
         )}
       </AnimatePresence>
 
-      <SettingsModal
-        open={settingsOpen}
-        onClose={() => setSettingsOpen(false)}
-      />
       <ReportsModal open={reportsOpen} onClose={() => setReportsOpen(false)} />
       <Toaster position="top-center" />
 
