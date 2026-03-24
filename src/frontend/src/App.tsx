@@ -19,8 +19,6 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Toaster } from "@/components/ui/sonner";
 
-import html2canvas from "html2canvas";
-import jsPDF from "jspdf";
 import {
   ArrowLeft,
   BarChart2,
@@ -48,7 +46,6 @@ import {
 import { AnimatePresence, motion } from "motion/react";
 import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
-
 type View =
   | "dashboard"
   | "add-order"
@@ -2381,38 +2378,9 @@ function PendingDeliveryPage({
   );
 
   const handlePrint = () => {
-    window.print();
-  };
-
-  const handlePDF = async () => {
-    const element = printListRef.current as HTMLElement;
-    if (!element) return;
-    try {
-      const canvas = await html2canvas(element, { scale: 2, useCORS: true });
-      const imgData = canvas.toDataURL("image/png");
-      const pdf = new jsPDF({
-        orientation: "portrait",
-        unit: "px",
-        format: "a4",
-      });
-      const pageWidth = pdf.internal.pageSize.getWidth();
-      const pageHeight = pdf.internal.pageSize.getHeight();
-      const imgWidth = pageWidth;
-      const imgHeight = (canvas.height * pageWidth) / canvas.width;
-      let heightLeft = imgHeight;
-      let position = 0;
-      pdf.addImage(imgData, "PNG", 0, position, imgWidth, imgHeight);
-      heightLeft -= pageHeight;
-      while (heightLeft > 0) {
-        position = heightLeft - imgHeight;
-        pdf.addPage();
-        pdf.addImage(imgData, "PNG", 0, position, imgWidth, imgHeight);
-        heightLeft -= pageHeight;
-      }
-      pdf.save("pending-deliveries.pdf");
-    } catch (_err) {
-      toast.error("PDF তৈরিতে সমস্যা হয়েছে");
-    }
+    setTimeout(() => {
+      window.print();
+    }, 1000);
   };
 
   const getBrickInfo = (order: Order) => {
@@ -2431,7 +2399,8 @@ function PendingDeliveryPage({
         @media print {
           .no-print { display: none !important; }
           .print-list { padding: 0 !important; }
-          body { background: white !important; }
+          body { background: white !important; overflow: visible !important; }
+          * { overflow: visible !important; max-height: none !important; }
         }
       `}</style>
       <motion.div
@@ -2467,17 +2436,9 @@ function PendingDeliveryPage({
                 type="button"
                 data-ocid="pending_delivery.print.button"
                 onClick={handlePrint}
-                className="px-3 py-1.5 rounded-lg bg-green-50 border border-green-200 text-green-700 text-xs font-semibold hover:bg-green-100 transition-colors"
+                className="no-print px-3 py-1.5 rounded-lg bg-green-600 border border-green-600 text-white text-xs font-semibold hover:bg-green-700 transition-colors"
               >
-                🖨 Print
-              </button>
-              <button
-                type="button"
-                data-ocid="pending_delivery.pdf.button"
-                onClick={handlePDF}
-                className="px-3 py-1.5 rounded-lg bg-green-600 text-white text-xs font-semibold hover:bg-green-700 transition-colors"
-              >
-                📄 PDF
+                🖨 Print / PDF
               </button>
             </div>
           </div>
@@ -3222,40 +3183,10 @@ function CompletedDeliveriesPage({
     return true;
   });
 
-  const handlePrint = () => window.print();
-
-  const handlePDF = async () => {
-    const element = completedPrintRef.current as HTMLElement;
-    if (!element) return;
-    try {
-      const canvas = await html2canvas(element, {
-        scale: 2,
-        useCORS: true,
-      });
-      const imgData = canvas.toDataURL("image/png");
-      const pdf = new jsPDF({
-        orientation: "portrait",
-        unit: "px",
-        format: "a4",
-      });
-      const pageWidth = pdf.internal.pageSize.getWidth();
-      const pageHeight = pdf.internal.pageSize.getHeight();
-      const imgWidth = pageWidth;
-      const imgHeight = (canvas.height * pageWidth) / canvas.width;
-      let heightLeft = imgHeight;
-      let position = 0;
-      pdf.addImage(imgData, "PNG", 0, position, imgWidth, imgHeight);
-      heightLeft -= pageHeight;
-      while (heightLeft > 0) {
-        position = heightLeft - imgHeight;
-        pdf.addPage();
-        pdf.addImage(imgData, "PNG", 0, position, imgWidth, imgHeight);
-        heightLeft -= pageHeight;
-      }
-      pdf.save("complete-deliveries.pdf");
-    } catch {
-      alert("PDF তৈরিতে সমস্যা হয়েছে।");
-    }
+  const handlePrint = () => {
+    setTimeout(() => {
+      window.print();
+    }, 1000);
   };
   return (
     <motion.div
@@ -3285,18 +3216,10 @@ function CompletedDeliveriesPage({
         <button
           type="button"
           onClick={handlePrint}
-          className="flex items-center gap-1 px-3 py-1.5 rounded-lg border border-green-300 bg-white text-green-700 text-xs font-medium hover:bg-green-50 transition-colors"
+          className="no-print flex items-center gap-1 px-3 py-1.5 rounded-lg bg-green-600 text-white text-xs font-medium hover:bg-green-700 transition-colors"
         >
           <Printer size={13} />
-          Print
-        </button>
-        <button
-          type="button"
-          onClick={handlePDF}
-          className="flex items-center gap-1 px-3 py-1.5 rounded-lg bg-green-700 text-white text-xs font-medium hover:bg-green-800 transition-colors"
-        >
-          <Download size={13} />
-          PDF
+          Print / PDF
         </button>
       </header>
 
@@ -3516,44 +3439,10 @@ function WeeklyLabourReportPage({
   const [toDate, setToDate] = useState("");
   const reportRef = useRef<HTMLDivElement>(null);
 
-  const handlePrint = () => window.print();
-
-  const handlePDF = async () => {
-    const element = reportRef.current;
-    if (!element) {
-      toast.error("PDF তৈরিতে সমস্যা হয়েছে");
-      return;
-    }
-    try {
-      const canvas = await html2canvas(element, {
-        scale: 2,
-        useCORS: true,
-        logging: false,
-      });
-      const imgData = canvas.toDataURL("image/png");
-      const pdf = new jsPDF({
-        orientation: "landscape",
-        unit: "px",
-        format: "a4",
-      });
-      const pageWidth = pdf.internal.pageSize.getWidth();
-      const pageHeight = pdf.internal.pageSize.getHeight();
-      const imgWidth = pageWidth;
-      const imgHeight = (canvas.height * pageWidth) / canvas.width;
-      let heightLeft = imgHeight;
-      let position = 0;
-      pdf.addImage(imgData, "PNG", 0, position, imgWidth, imgHeight);
-      heightLeft -= pageHeight;
-      while (heightLeft > 0) {
-        position = heightLeft - imgHeight;
-        pdf.addPage();
-        pdf.addImage(imgData, "PNG", 0, position, imgWidth, imgHeight);
-        heightLeft -= pageHeight;
-      }
-      pdf.save("weekly-labour-report.pdf");
-    } catch (_err) {
-      toast.error("PDF তৈরিতে সমস্যা হয়েছে");
-    }
+  const handlePrint = () => {
+    setTimeout(() => {
+      window.print();
+    }, 1000);
   };
 
   // Filter by date range if set
@@ -3639,7 +3528,7 @@ function WeeklyLabourReportPage({
     >
       <style>
         {
-          "@media print { .no-print { display: none !important; } body { background: white; } }"
+          "@media print { .no-print { display: none !important; } body { background: white; overflow: visible !important; } * { overflow: visible !important; max-height: none !important; } }"
         }
       </style>
 
@@ -3697,17 +3586,9 @@ function WeeklyLabourReportPage({
           type="button"
           onClick={handlePrint}
           data-ocid="weekly_labour.print.button"
-          className="flex items-center gap-1 bg-[#1a4d2e] text-white px-3 py-1.5 rounded-lg text-xs font-bold hover:bg-[#133d22]"
+          className="no-print flex items-center gap-1 bg-[#1a4d2e] text-white px-3 py-1.5 rounded-lg text-xs font-bold hover:bg-[#133d22]"
         >
-          🖨 Print
-        </button>
-        <button
-          type="button"
-          onClick={handlePDF}
-          data-ocid="weekly_labour.pdf.button"
-          className="flex items-center gap-1 bg-blue-600 text-white px-3 py-1.5 rounded-lg text-xs font-bold hover:bg-blue-700"
-        >
-          📄 PDF
+          🖨 Print / PDF
         </button>
       </div>
 
@@ -3889,44 +3770,10 @@ function DailyLabourReportPage({
   const [toDate, setToDate] = useState("");
   const reportRef = useRef<HTMLDivElement>(null);
 
-  const handlePrint = () => window.print();
-
-  const handlePDF = async () => {
-    const element = reportRef.current;
-    if (!element) {
-      toast.error("PDF তৈরিতে সমস্যা হয়েছে");
-      return;
-    }
-    try {
-      const canvas = await html2canvas(element, {
-        scale: 2,
-        useCORS: true,
-        logging: false,
-      });
-      const imgData = canvas.toDataURL("image/png");
-      const pdf = new jsPDF({
-        orientation: "portrait",
-        unit: "px",
-        format: "a4",
-      });
-      const pageWidth = pdf.internal.pageSize.getWidth();
-      const pageHeight = pdf.internal.pageSize.getHeight();
-      const imgWidth = pageWidth;
-      const imgHeight = (canvas.height * pageWidth) / canvas.width;
-      let heightLeft = imgHeight;
-      let position = 0;
-      pdf.addImage(imgData, "PNG", 0, position, imgWidth, imgHeight);
-      heightLeft -= pageHeight;
-      while (heightLeft > 0) {
-        position = heightLeft - imgHeight;
-        pdf.addPage();
-        pdf.addImage(imgData, "PNG", 0, position, imgWidth, imgHeight);
-        heightLeft -= pageHeight;
-      }
-      pdf.save("daily-labour-report.pdf");
-    } catch (_err) {
-      toast.error("PDF তৈরিতে সমস্যা হয়েছে");
-    }
+  const handlePrint = () => {
+    setTimeout(() => {
+      window.print();
+    }, 1000);
   };
 
   // Filter completedDeliveries by date range
@@ -4023,7 +3870,8 @@ function DailyLabourReportPage({
       <style>{`
         @media print {
           .no-print { display: none !important; }
-          body { background: white !important; }
+          body { background: white !important; overflow: visible !important; }
+          * { overflow: visible !important; max-height: none !important; }
           .print-area { box-shadow: none !important; }
         }
       `}</style>
@@ -4080,17 +3928,9 @@ function DailyLabourReportPage({
           type="button"
           onClick={handlePrint}
           data-ocid="daily_labour.print.button"
-          className="flex items-center gap-1 bg-[#1a4d2e] text-white px-3 py-1.5 rounded-lg text-xs font-bold hover:bg-[#133d22]"
+          className="no-print flex items-center gap-1 bg-[#1a4d2e] text-white px-3 py-1.5 rounded-lg text-xs font-bold hover:bg-[#133d22]"
         >
-          🖨 Print
-        </button>
-        <button
-          type="button"
-          onClick={handlePDF}
-          data-ocid="daily_labour.pdf.button"
-          className="flex items-center gap-1 bg-blue-600 text-white px-3 py-1.5 rounded-lg text-xs font-bold hover:bg-blue-700"
-        >
-          📄 PDF
+          🖨 Print / PDF
         </button>
       </div>
 

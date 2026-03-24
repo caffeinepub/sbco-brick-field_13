@@ -65,3 +65,16 @@
     font-family: "Plus Jakarta Sans", system-ui, sans-serif;
   }
 }
+
+@media print {
+  .no-print {
+    display: none !important;
+  }
+  body {
+    overflow: visible !important;
+  }
+  * {
+    overflow: visible !important;
+    max-height: none !important;
+  }
+}
