@@ -39,6 +39,7 @@ import {
   Settings,
   Trash2,
   Truck,
+  Upload,
   Users,
   Wallet,
   X,
@@ -240,8 +241,31 @@ interface Vehicle {
   unloadingLabors?: string[];
 }
 
-function SettingsPage({ onBack }: { onBack: () => void }) {
-  const [activeTab, setActiveTab] = useState<"vehicles" | "rates">("vehicles");
+interface TrashItem {
+  id: string;
+  type: "order" | "delivery" | "closedOrder" | "completedDelivery";
+  item: any;
+  deletedAt: string;
+}
+
+interface SettingsPageProps {
+  onBack: () => void;
+  trash: TrashItem[];
+  setTrash: React.Dispatch<React.SetStateAction<TrashItem[]>>;
+  lastBackupTime: string;
+  setLastBackupTime: React.Dispatch<React.SetStateAction<string>>;
+}
+
+function SettingsPage({
+  onBack,
+  trash,
+  setTrash,
+  lastBackupTime,
+  setLastBackupTime,
+}: SettingsPageProps) {
+  const [activeTab, setActiveTab] = useState<"vehicles" | "rates" | "backup">(
+    "vehicles",
+  );
   const [vehicleType, setVehicleType] = useState<"Tractor" | "12 Wheel">(
     "Tractor",
   );
@@ -414,19 +438,25 @@ function SettingsPage({ onBack }: { onBack: () => void }) {
       {/* Tabs */}
       <div className="px-4 pt-4">
         <div className="flex bg-muted rounded-full p-1 gap-1">
-          {(["vehicles", "rates"] as const).map((tab) => (
+          {(["vehicles", "rates", "backup"] as const).map((tab) => (
             <button
               key={tab}
               type="button"
               data-ocid={`settings.${tab}.tab`}
-              onClick={() => setActiveTab(tab)}
-              className={`flex-1 py-2 rounded-full text-sm font-semibold capitalize transition-all ${
+              onClick={() =>
+                setActiveTab(tab as "vehicles" | "rates" | "backup")
+              }
+              className={`flex-1 py-2 rounded-full text-xs font-semibold capitalize transition-all ${
                 activeTab === tab
                   ? "bg-primary text-primary-foreground shadow"
                   : "text-muted-foreground hover:text-foreground"
               }`}
             >
-              {tab === "vehicles" ? "🚛 Vehicles" : "💰 Rates"}
+              {tab === "vehicles"
+                ? "🚛 Vehicles"
+                : tab === "rates"
+                  ? "💰 Rates"
+                  : "💾 Backup"}
             </button>
           ))}
         </div>
@@ -681,7 +711,7 @@ function SettingsPage({ onBack }: { onBack: () => void }) {
               </div>
             )}
           </>
-        ) : (
+        ) : activeTab === "rates" ? (
           <div data-ocid="settings.rates.panel" className="flex flex-col gap-4">
             {/* Vehicle type toggle */}
             <div className="flex gap-2 bg-brand-mint-badge rounded-xl p-1">
@@ -958,6 +988,222 @@ function SettingsPage({ onBack }: { onBack: () => void }) {
               </div>
             )}
           </div>
+        ) : (
+          /* Backup Tab */
+          <div data-ocid="backup.panel" className="flex flex-col gap-4">
+            {/* Backup & Restore Card */}
+            <div className="bg-card rounded-2xl shadow border border-border p-4 flex flex-col gap-4">
+              <h2 className="font-bold text-base text-foreground">
+                💾 ডেটা ব্যাকআপ ও পুনরুদ্ধার
+              </h2>
+              <div className="flex items-center gap-2 px-3 py-2.5 bg-muted/50 rounded-xl">
+                <Clock size={14} className="text-muted-foreground shrink-0" />
+                <div>
+                  <p className="text-xs text-muted-foreground">শেষ ব্যাকআপ</p>
+                  <p className="text-sm font-semibold text-foreground">
+                    {lastBackupTime
+                      ? new Date(lastBackupTime).toLocaleString("en-BD", {
+                          day: "2-digit",
+                          month: "2-digit",
+                          year: "2-digit",
+                          hour: "2-digit",
+                          minute: "2-digit",
+                        })
+                      : "কোনো ব্যাকআপ নেই"}
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                data-ocid="backup.export.button"
+                onClick={() => {
+                  const data: Record<string, any> = {};
+                  for (let i = 0; i < localStorage.length; i++) {
+                    const key = localStorage.key(i)!;
+                    if (key === "sbco_autobackup") continue;
+                    try {
+                      data[key] = JSON.parse(localStorage.getItem(key)!);
+                    } catch {
+                      data[key] = localStorage.getItem(key);
+                    }
+                  }
+                  const blob = new Blob(
+                    [
+                      JSON.stringify(
+                        {
+                          version: 1,
+                          exportedAt: new Date().toISOString(),
+                          data,
+                        },
+                        null,
+                        2,
+                      ),
+                    ],
+                    { type: "application/json" },
+                  );
+                  const url = URL.createObjectURL(blob);
+                  const a = document.createElement("a");
+                  a.href = url;
+                  a.download = `sbco-backup-${new Date().toISOString().slice(0, 10)}.json`;
+                  a.click();
+                  URL.revokeObjectURL(url);
+                  const ts = new Date().toISOString();
+                  localStorage.setItem("sbco_lastBackup", ts);
+                  setLastBackupTime(ts);
+                  toast.success("ব্যাকআপ সফলভাবে ডাউনলোড হয়েছে");
+                }}
+                className="w-full py-3 rounded-xl bg-primary text-primary-foreground font-bold text-sm hover:opacity-90 transition-opacity flex items-center justify-center gap-2"
+              >
+                <Download size={16} />
+                ব্যাকআপ করুন
+              </button>
+              <div>
+                <input
+                  type="file"
+                  accept=".json"
+                  id="backup-restore-input"
+                  className="hidden"
+                  onChange={(e) => {
+                    const file = e.target.files?.[0];
+                    if (!file) return;
+                    const reader = new FileReader();
+                    reader.onload = (ev) => {
+                      try {
+                        const parsed = JSON.parse(ev.target?.result as string);
+                        const importData = parsed.data || parsed;
+                        for (const [key, value] of Object.entries(importData)) {
+                          localStorage.setItem(
+                            key,
+                            typeof value === "string"
+                              ? value
+                              : JSON.stringify(value),
+                          );
+                        }
+                        toast.success("ব্যাকআপ পুনরুদ্ধার হয়েছে! রিলোড হচ্ছে...");
+                        setTimeout(() => window.location.reload(), 1500);
+                      } catch {
+                        toast.error("ব্যাকআপ ফাইল পড়তে ব্যর্থ হয়েছে");
+                      }
+                    };
+                    reader.readAsText(file);
+                    e.target.value = "";
+                  }}
+                />
+                <button
+                  type="button"
+                  data-ocid="backup.import.button"
+                  onClick={() =>
+                    document.getElementById("backup-restore-input")?.click()
+                  }
+                  className="w-full py-3 rounded-xl border-2 border-primary text-primary font-bold text-sm hover:bg-primary/5 transition-colors flex items-center justify-center gap-2"
+                >
+                  <Upload size={16} />
+                  ব্যাকআপ পুনরুদ্ধার
+                </button>
+              </div>
+            </div>
+
+            {/* Recently Deleted */}
+            <div className="bg-card rounded-2xl shadow border border-border p-4 flex flex-col gap-3">
+              <h2 className="font-bold text-base text-foreground">
+                🗑️ সম্প্রতি মুছে ফেলা
+              </h2>
+              <p className="text-xs text-muted-foreground">
+                মুছে ফেলা আইটেম ৭ দিন পর্যন্ত এখানে থাকবে।
+              </p>
+              {trash.length === 0 ? (
+                <div
+                  data-ocid="trash.empty_state"
+                  className="flex flex-col items-center justify-center py-8 gap-2 text-center"
+                >
+                  <span className="text-3xl">✅</span>
+                  <p className="text-sm text-muted-foreground">
+                    কোনো মুছে ফেলা আইটেম নেই
+                  </p>
+                </div>
+              ) : (
+                <div className="flex flex-col gap-2">
+                  {trash.map((item, idx) => {
+                    const name =
+                      item.item?.customerName ||
+                      item.item?.number ||
+                      item.item?.invoiceNumber ||
+                      "অজানা";
+                    const deletedAgo = (() => {
+                      const diff =
+                        Date.now() - new Date(item.deletedAt).getTime();
+                      const days = Math.floor(diff / 86400000);
+                      const hours = Math.floor(diff / 3600000);
+                      if (days > 0) return `${days} দিন আগে`;
+                      if (hours > 0) return `${hours} ঘণ্টা আগে`;
+                      return "এইমাত্র";
+                    })();
+                    const typeLabel =
+                      item.type === "order"
+                        ? "অর্ডার"
+                        : item.type === "delivery"
+                          ? "ডেলিভারি"
+                          : item.type === "completedDelivery"
+                            ? "সম্পন্ন ডেলিভারি"
+                            : "বন্ধ অর্ডার";
+                    return (
+                      <div
+                        key={item.id}
+                        data-ocid={`trash.item.${idx + 1}`}
+                        className="flex items-center gap-2 p-3 bg-muted/40 rounded-xl border border-border"
+                      >
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm font-semibold text-foreground truncate">
+                            {name}
+                          </p>
+                          <div className="flex items-center gap-2 mt-0.5">
+                            <span className="text-[10px] px-1.5 py-0.5 bg-primary/15 text-primary rounded-full font-semibold">
+                              {typeLabel}
+                            </span>
+                            <span className="text-[10px] text-muted-foreground">
+                              {deletedAgo}
+                            </span>
+                          </div>
+                        </div>
+                        <div className="flex gap-1.5 shrink-0">
+                          <button
+                            type="button"
+                            data-ocid={`trash.restore_button.${idx + 1}`}
+                            onClick={() => {
+                              setTrash((prev) =>
+                                prev.filter((t) => t.id !== item.id),
+                              );
+                              toast.success(`${name} পুনরুদ্ধার করা হয়েছে`);
+                            }}
+                            className="px-2 py-1.5 text-xs font-semibold bg-green-100 text-green-700 rounded-lg hover:bg-green-200 transition-colors"
+                          >
+                            পুনরুদ্ধার
+                          </button>
+                          <button
+                            type="button"
+                            data-ocid={`trash.delete_button.${idx + 1}`}
+                            onClick={() => {
+                              if (
+                                window.confirm(`"${name}" স্থায়ীভাবে মুছে দেবেন?`)
+                              ) {
+                                setTrash((prev) =>
+                                  prev.filter((t) => t.id !== item.id),
+                                );
+                                toast.success("স্থায়ীভাবে মুছে ফেলা হয়েছে");
+                              }
+                            }}
+                            className="p-1.5 text-red-500 bg-red-50 rounded-lg hover:bg-red-100 transition-colors"
+                          >
+                            <Trash2 size={13} />
+                          </button>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          </div>
         )}
       </main>
     </motion.div>
@@ -981,7 +1227,7 @@ function ReportsPage({
       transition={{ duration: 0.25, ease: "easeOut" }}
       className="min-h-screen bg-background flex flex-col"
     >
-      <header className="bg-primary text-primary-foreground px-4 py-4 flex items-center gap-3 sticky top-0 z-10">
+      <header className="no-print bg-primary text-primary-foreground px-4 py-4 flex items-center gap-3 sticky top-0 z-10">
         <button
           type="button"
           data-ocid="reports.back.button"
@@ -992,7 +1238,7 @@ function ReportsPage({
         </button>
         <h1 className="text-lg font-bold uppercase tracking-widest">Reports</h1>
       </header>
-      <div className="flex gap-2 px-4 pt-4 pb-2">
+      <div className="no-print flex gap-2 px-4 pt-4 pb-2">
         <button
           type="button"
           data-ocid="reports.daily.tab"
@@ -1997,6 +2243,7 @@ function TotalOrdersPage({
   onUpdateOrder,
   onDeleteOrder,
   onViewPending,
+  onMarkPending,
   completedDeliveries,
 }: {
   orders: Order[];
@@ -2004,6 +2251,7 @@ function TotalOrdersPage({
   onUpdateOrder: (updatedOrder: Order) => void;
   onDeleteOrder: (orderId: string) => void;
   onViewPending: (order: Order) => void;
+  onMarkPending: (order: Order) => void;
   completedDeliveries: Order[];
 }) {
   const [search, setSearch] = useState("");
@@ -2157,28 +2405,27 @@ function TotalOrdersPage({
             </p>
           </motion.div>
         ) : (
-          <div className="flex flex-col gap-3">
+          <AnimatePresence>
             {filtered.map((order, i) => (
               <motion.div
                 key={order.id}
                 data-ocid={`total_orders.item.${i + 1}`}
-                initial={{ opacity: 0, y: 10 }}
+                initial={{ opacity: 0, y: 14 }}
                 animate={{ opacity: 1, y: 0 }}
-                transition={{ delay: i * 0.04 }}
-                className="bg-card rounded-2xl shadow-card overflow-hidden"
+                exit={{ opacity: 0, y: -10 }}
+                transition={{ delay: i * 0.04, duration: 0.22 }}
+                className="bg-card rounded-xl border border-border shadow-sm overflow-hidden"
               >
-                {/* Card Header — green tint */}
                 <div className="bg-brand-mint-badge px-4 py-3 flex items-start justify-between gap-2">
                   <div className="flex-1 min-w-0">
                     <p className="text-sm font-extrabold text-foreground leading-tight truncate">
                       {order.customerName}
                     </p>
                     <p className="text-xs text-muted-foreground mt-0.5 truncate">
-                      {order.address || "—"}
+                      {order.address || "—"} · INV#{order.invoiceNumber}
                     </p>
                   </div>
                   <div className="flex items-center gap-1.5 shrink-0">
-                    {/* History */}
                     <button
                       type="button"
                       data-ocid={`total_orders.item.${i + 1}.history.button`}
@@ -2187,144 +2434,104 @@ function TotalOrdersPage({
                     >
                       <Clock size={14} className="text-primary" />
                     </button>
-                    {/* Edit */}
                     <button
                       type="button"
                       data-ocid={`total_orders.item.${i + 1}.edit_button`}
-                      onClick={() => toast.info("Edit — coming soon")}
-                      className="w-8 h-8 rounded-full bg-primary flex items-center justify-center hover:opacity-80 transition-opacity"
+                      onClick={() => {
+                        onViewPending(order);
+                      }}
+                      className="w-8 h-8 rounded-full bg-blue-100 flex items-center justify-center hover:bg-blue-200 transition-colors"
                     >
-                      <Pencil size={13} className="text-primary-foreground" />
+                      <Pencil size={13} className="text-blue-700" />
                     </button>
-                    {/* Delete */}
                     <button
                       type="button"
                       data-ocid={`total_orders.item.${i + 1}.delete_button`}
                       onClick={() => handleDelete(order)}
-                      className="w-8 h-8 rounded-full bg-destructive flex items-center justify-center hover:opacity-80 transition-opacity"
+                      className="w-8 h-8 rounded-full bg-red-100 flex items-center justify-center hover:bg-red-200 transition-colors"
                     >
-                      <Trash2 size={13} className="text-white" />
+                      <Trash2 size={13} className="text-red-600" />
+                    </button>
+                    <button
+                      type="button"
+                      data-ocid={`total_orders.item.${i + 1}.pending_button`}
+                      onClick={() => onMarkPending(order)}
+                      title="পেন্ডিং ডেলিভারিতে যোগ করুন"
+                      className="w-8 h-8 rounded-full bg-red-500 hover:bg-red-600 flex items-center justify-center transition-colors"
+                    >
+                      <Truck size={13} className="text-white" />
                     </button>
                   </div>
                 </div>
-
-                {/* Card Body */}
-                <div className="px-4 py-3 flex flex-col gap-3">
-                  {/* 4-column info row */}
-                  <div className="grid grid-cols-4 gap-1">
-                    {(
-                      [
-                        ["PHONE", order.phoneNumber || "—"],
-                        ["INVOICE", order.invoiceNumber || "—"],
-                        ["ORDER DATE", formatDateShort(order.orderDate)],
-                        [
-                          "APPROX DEL.",
-                          formatDateShort(order.approxDeliveryDate),
-                        ],
-                      ] as [string, string][]
-                    ).map(([label, val]) => (
-                      <div key={label}>
-                        <p className="text-[9px] font-bold uppercase tracking-wide text-muted-foreground leading-tight">
-                          {label}
-                        </p>
-                        <p className="text-[11px] font-extrabold text-foreground leading-tight mt-0.5 truncate">
-                          {val}
-                        </p>
-                      </div>
-                    ))}
-                  </div>
-
-                  {/* Brick types header */}
-                  <div className="flex items-center justify-between">
-                    <p className="text-[10px] font-extrabold uppercase tracking-wide text-foreground">
-                      BRICK TYPES &amp; QTY
-                    </p>
-                    {/* Clickable PENDING badge */}
-                    <button
-                      type="button"
-                      data-ocid={`total_orders.item.${i + 1}.pending.button`}
-                      onClick={() => onViewPending(order)}
-                      className="text-[9px] font-extrabold uppercase tracking-wide bg-destructive text-white px-2.5 py-0.5 rounded-full hover:opacity-80 active:scale-95 transition-all cursor-pointer"
+                <div className="px-4 py-2.5 space-y-1.5">
+                  <div className="flex flex-wrap gap-x-3 gap-y-0.5 text-xs text-muted-foreground">
+                    <span>📅 {order.orderDate}</span>
+                    {order.phoneNumber && <span>📞 {order.phoneNumber}</span>}
+                    <span
+                      className={`font-semibold ${order.locationType === "Local" ? "text-green-600" : "text-blue-600"}`}
                     >
-                      PENDING
-                    </button>
+                      {order.locationType}
+                    </span>
                   </div>
-
-                  {/* Brick pills */}
-                  {order.bricks.length > 0 ? (
-                    <div className="flex flex-wrap gap-1.5">
-                      {order.bricks.map((b) => (
-                        <span
-                          key={b.type}
-                          className="text-[10px] bg-brand-mint-badge text-primary font-bold px-3 py-1 rounded-full border border-primary/20"
-                        >
-                          {b.type}: {b.quantity.toLocaleString()}
-                        </span>
-                      ))}
-                    </div>
-                  ) : (
-                    <p className="text-xs text-muted-foreground italic">
-                      No brick types selected
-                    </p>
-                  )}
-
-                  {/* Divider */}
-                  <div className="h-px bg-border" />
-
-                  {/* 5-column stats row */}
-                  <div className="grid grid-cols-5 gap-1">
-                    {(
-                      [
-                        ["BRICKS", order.totalBricks.toLocaleString(), false],
-                        [
-                          "BRICKS DUE",
-                          (
-                            order.totalBricks - (order.deliveredBricks || 0)
-                          ).toLocaleString(),
-                          false,
-                        ],
-                        [
-                          "TOTAL AMT",
-                          `₹${order.totalAmount.toLocaleString()}`,
-                          false,
-                        ],
-                        [
-                          "PAID",
-                          `₹${order.paidAmount.toLocaleString()}`,
-                          false,
-                        ],
-                        ["DUE", `₹${order.dueAmount.toLocaleString()}`, true],
-                      ] as [string, string, boolean][]
-                    ).map(([label, val, isDue]) => (
-                      <div key={label} className="text-center">
-                        <p className="text-[9px] font-bold uppercase tracking-wide text-muted-foreground leading-tight">
-                          {label}
-                        </p>
-                        <p
-                          className={[
-                            "text-[11px] font-extrabold leading-tight mt-0.5",
-                            isDue ? "text-destructive" : "text-foreground",
-                          ].join(" ")}
-                        >
-                          {val}
-                        </p>
-                      </div>
+                  <div className="flex flex-wrap gap-1.5">
+                    {order.bricks.map((b, j) => (
+                      <span
+                        key={`${b.type}-${j}`}
+                        className="bg-brand-mint-badge text-primary text-[10px] font-semibold px-2 py-0.5 rounded-full"
+                      >
+                        {b.type}: {(b.quantity || 0).toLocaleString()}
+                      </span>
                     ))}
                   </div>
-
-                  {/* Add Payment button */}
+                </div>
+                <div className="h-px bg-border" />
+                <div className="grid grid-cols-4 gap-1 px-4 py-2.5">
+                  {(
+                    [
+                      ["BRICKS", order.totalBricks.toLocaleString()],
+                      ["TOTAL", `₹${order.totalAmount.toLocaleString()}`],
+                      ["PAID", `₹${order.paidAmount.toLocaleString()}`],
+                      ["DUE", `₹${order.dueAmount.toLocaleString()}`],
+                    ] as [string, string][]
+                  ).map(([label, val]) => (
+                    <div key={label} className="text-center">
+                      <p className="text-[9px] font-bold uppercase text-muted-foreground tracking-wider">
+                        {label}
+                      </p>
+                      <p
+                        className={`text-xs font-extrabold mt-0.5 ${label === "DUE" && order.dueAmount > 0 ? "text-red-500" : "text-foreground"}`}
+                      >
+                        {val}
+                      </p>
+                    </div>
+                  ))}
+                </div>
+                <div className="h-px bg-border" />
+                <div className="px-4 py-2.5 flex items-center justify-between">
+                  <div>
+                    <p className="text-[10px] text-muted-foreground uppercase font-bold tracking-wider">
+                      Bricks Due
+                    </p>
+                    <p className="text-sm font-extrabold text-foreground">
+                      {Math.max(
+                        0,
+                        order.totalBricks - (order.deliveredBricks || 0),
+                      ).toLocaleString()}
+                    </p>
+                  </div>
                   <button
                     type="button"
-                    data-ocid={`total_orders.item.${i + 1}.add_payment.button`}
+                    data-ocid={`total_orders.item.${i + 1}.payment.button`}
                     onClick={() => setPaymentOrder(order)}
-                    className="w-full py-2.5 rounded-xl bg-brand-mint-badge text-primary text-xs font-extrabold uppercase tracking-widest border border-primary/20 hover:bg-primary/10 active:scale-95 transition-all"
+                    className="flex items-center gap-1.5 px-3 py-2 bg-primary text-primary-foreground rounded-lg text-xs font-bold hover:opacity-90 transition-opacity"
                   >
-                    ₹ ADD PAYMENT
+                    <CreditCard size={13} />
+                    Add Payment
                   </button>
                 </div>
               </motion.div>
             ))}
-          </div>
+          </AnimatePresence>
         )}
       </main>
 
@@ -2438,7 +2645,7 @@ function PendingDeliveryPage({
                 onClick={handlePrint}
                 className="no-print px-3 py-1.5 rounded-lg bg-green-600 border border-green-600 text-white text-xs font-semibold hover:bg-green-700 transition-colors"
               >
-                🖨 Print / PDF
+                🖨 Print
               </button>
             </div>
           </div>
@@ -2643,6 +2850,654 @@ interface CompleteDeliveryData {
   unloadingShare: number;
   perLoadingLabour: number;
   perUnloadingLabour: number;
+}
+
+function DirectDeliveryPage({
+  onBack,
+  onSaveComplete,
+}: {
+  onBack: () => void;
+  onSaveComplete: (delivery: Order) => void;
+}) {
+  const [customerName, setCustomerName] = useState("");
+  const [address, setAddress] = useState("");
+  const [phoneNumber, setPhoneNumber] = useState("");
+  const [invoiceNumber, setInvoiceNumber] = useState("");
+  const [deliveryDate, setDeliveryDate] = useState(getTodayISO());
+
+  const [selectedBricks, setSelectedBricks] = useState<Set<BrickType>>(
+    new Set(),
+  );
+  const [quantities, setQuantities] = useState<Record<string, number>>({});
+
+  const [vehicleType, setVehicleType] = useState<"Tractor" | "12 Wheel" | null>(
+    null,
+  );
+  const [vehicleNumber, setVehicleNumber] = useState<string | null>(null);
+  const [loadingLabours, setLoadingLabours] = useState<string[]>([]);
+  const [unloadingLabours, setUnloadingLabours] = useState<string[]>([]);
+  const [customLoadingInput, setCustomLoadingInput] = useState("");
+  const [customUnloadingInput, setCustomUnloadingInput] = useState("");
+
+  const vehicles: Vehicle[] = (() => {
+    try {
+      const saved = localStorage.getItem("sbco_vehicles");
+      return saved ? JSON.parse(saved) : [];
+    } catch {
+      return [];
+    }
+  })();
+
+  const rates: {
+    tractorLocalRate: number;
+    tractorOutsideRate: number;
+    tractorSafetyBatsRate: number;
+    wheelLocalRate: number;
+    wheelSafetyBatsRate: number;
+  } = (() => {
+    try {
+      const saved = localStorage.getItem("sbco_rates");
+      return saved
+        ? JSON.parse(saved)
+        : {
+            tractorLocalRate: 0,
+            tractorOutsideRate: 0,
+            tractorSafetyBatsRate: 0,
+            wheelLocalRate: 0,
+            wheelSafetyBatsRate: 0,
+          };
+    } catch {
+      return {
+        tractorLocalRate: 0,
+        tractorOutsideRate: 0,
+        tractorSafetyBatsRate: 0,
+        wheelLocalRate: 0,
+        wheelSafetyBatsRate: 0,
+      };
+    }
+  })();
+
+  const toggleBrick = (type: BrickType) => {
+    setSelectedBricks((prev) => {
+      const next = new Set(prev);
+      if (next.has(type)) {
+        next.delete(type);
+      } else {
+        next.add(type);
+        if (!quantities[type]) {
+          setQuantities((q) => ({ ...q, [type]: 0 }));
+        }
+      }
+      return next;
+    });
+  };
+
+  const adjustQty = (type: BrickType, delta: number) => {
+    setQuantities((prev) => ({
+      ...prev,
+      [type]: Math.max(0, (prev[type] || 0) + delta),
+    }));
+  };
+
+  const totalBricks = BRICK_TYPES.reduce((sum, type) => {
+    if (type === "Bats" || !selectedBricks.has(type)) return sum;
+    return sum + (quantities[type] || 0);
+  }, 0);
+
+  const computedRate = (() => {
+    if (!vehicleType) return 0;
+    if (vehicleType === "Tractor") return Number(rates.tractorLocalRate) || 0;
+    return Number(rates.wheelLocalRate) || 0;
+  })();
+
+  const totalAmount = (totalBricks / 1000) * computedRate;
+  const loadingShare = totalAmount / 2;
+  const unloadingShare = totalAmount / 2;
+  const perLoadingLabour =
+    loadingLabours.length > 0 ? loadingShare / loadingLabours.length : 0;
+  const perUnloadingLabour =
+    unloadingLabours.length > 0 ? unloadingShare / unloadingLabours.length : 0;
+
+  const handleVehicleTypeSelect = (vt: "Tractor" | "12 Wheel") => {
+    setVehicleType((prev) => (prev === vt ? null : vt));
+    setVehicleNumber(null);
+    setLoadingLabours([]);
+    setUnloadingLabours([]);
+  };
+
+  const handleVehicleNumberSelect = (vNum: string) => {
+    if (vehicleNumber === vNum) {
+      setVehicleNumber(null);
+      return;
+    }
+    setVehicleNumber(vNum);
+    const found = vehicles.find((v) => v.number === vNum);
+    if (found) {
+      setLoadingLabours(found.loadingLabors || []);
+      setUnloadingLabours(found.unloadingLabors || []);
+    }
+  };
+
+  const handleSave = () => {
+    if (!customerName.trim()) {
+      toast.error("Customer Name is required");
+      return;
+    }
+    const bricks: BrickSelection[] = BRICK_TYPES.filter((t) =>
+      selectedBricks.has(t),
+    ).map((t) => ({
+      type: t,
+      quantity: t === "Bats" ? 0 : quantities[t] || 0,
+      safety: t === "Bats" ? quantities[t] || 0 : undefined,
+    }));
+
+    const newOrder: Order = {
+      id: crypto.randomUUID(),
+      orderDate: deliveryDate,
+      customerName: customerName.trim(),
+      address: address.trim(),
+      phoneNumber: phoneNumber.trim(),
+      invoiceNumber: invoiceNumber.trim(),
+      approxDeliveryDate: deliveryDate,
+      bricks,
+      totalBricks,
+      totalAmount: 0,
+      paidAmount: 0,
+      dueAmount: 0,
+      locationType: "Local",
+      createdAt: new Date(),
+      completionData: {
+        vehicleType,
+        vehicleNumber,
+        loadingLabours,
+        unloadingLabours,
+        paymentStatus: "Not Paid",
+        rate: computedRate,
+        totalAmount,
+        loadingShare,
+        unloadingShare,
+        perLoadingLabour,
+        perUnloadingLabour,
+      },
+    };
+
+    onSaveComplete(newOrder);
+    toast.success("Direct Delivery saved!");
+
+    // Reset form
+    setCustomerName("");
+    setAddress("");
+    setPhoneNumber("");
+    setInvoiceNumber("");
+    setDeliveryDate(getTodayISO());
+    setSelectedBricks(new Set());
+    setQuantities({});
+    setVehicleType(null);
+    setVehicleNumber(null);
+    setLoadingLabours([]);
+    setUnloadingLabours([]);
+  };
+
+  return (
+    <motion.div
+      key="direct-delivery-page"
+      initial={{ x: 60, opacity: 0 }}
+      animate={{ x: 0, opacity: 1 }}
+      exit={{ x: 60, opacity: 0 }}
+      transition={{ duration: 0.25, ease: "easeOut" }}
+      className="min-h-screen bg-green-50 flex flex-col pb-24"
+    >
+      {/* Header */}
+      <header className="bg-white px-4 pt-3 pb-2 shadow-sm border-b border-green-100 sticky top-0 z-10">
+        <div className="flex items-center gap-3">
+          <button
+            type="button"
+            data-ocid="direct_delivery.back.button"
+            onClick={onBack}
+            className="p-2 rounded-xl bg-green-50 hover:bg-green-100 transition-colors text-green-700 shrink-0"
+          >
+            <ArrowLeft size={20} />
+          </button>
+          <div className="flex-1 min-w-0">
+            <h1 className="text-lg font-bold text-gray-900 leading-tight">
+              Direct Delivery
+            </h1>
+            <p className="text-sm text-green-600 font-medium mt-0.5">
+              Add to Completed Directly
+            </p>
+          </div>
+          <button
+            type="button"
+            data-ocid="direct_delivery.save.button"
+            onClick={handleSave}
+            className="p-2 rounded-full bg-green-600 hover:bg-green-700 transition-colors text-white shrink-0"
+          >
+            <CheckCircle size={22} />
+          </button>
+        </div>
+      </header>
+
+      <main className="flex-1 p-3 flex flex-col gap-3">
+        {/* Basic Information */}
+        <div className="bg-white rounded-xl shadow-sm border border-green-100 p-3">
+          <div className="flex items-center gap-2 mb-3">
+            <div className="w-7 h-7 rounded-full bg-green-100 flex items-center justify-center shrink-0">
+              <svg
+                xmlns="http://www.w3.org/2000/svg"
+                width="16"
+                height="16"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                className="text-green-700"
+                aria-label="Customer"
+                role="img"
+              >
+                <path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2" />
+                <circle cx="12" cy="7" r="4" />
+              </svg>
+            </div>
+            <span className="text-xs font-bold uppercase tracking-widest text-gray-500">
+              Basic Information
+            </span>
+          </div>
+          <div className="grid grid-cols-2 gap-2">
+            <div className="flex flex-col gap-1">
+              <p className="text-[10px] font-bold uppercase tracking-wide text-gray-500">
+                Customer Name
+              </p>
+              <input
+                data-ocid="direct_delivery.customer_name.input"
+                type="text"
+                value={customerName}
+                onChange={(e) => setCustomerName(e.target.value)}
+                placeholder="Name..."
+                className="border border-green-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-400 bg-green-50"
+              />
+            </div>
+            <div className="flex flex-col gap-1">
+              <p className="text-[10px] font-bold uppercase tracking-wide text-gray-500">
+                Address
+              </p>
+              <input
+                data-ocid="direct_delivery.address.input"
+                type="text"
+                value={address}
+                onChange={(e) => setAddress(e.target.value)}
+                placeholder="Address..."
+                className="border border-green-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-400 bg-green-50"
+              />
+            </div>
+            <div className="flex flex-col gap-1">
+              <p className="text-[10px] font-bold uppercase tracking-wide text-gray-500">
+                Phone Number
+              </p>
+              <input
+                data-ocid="direct_delivery.phone.input"
+                type="text"
+                inputMode="numeric"
+                value={phoneNumber}
+                onChange={(e) => setPhoneNumber(e.target.value)}
+                placeholder="Phone..."
+                className="border border-green-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-400 bg-green-50"
+              />
+            </div>
+            <div className="flex flex-col gap-1">
+              <p className="text-[10px] font-bold uppercase tracking-wide text-gray-500">
+                Invoice Number
+              </p>
+              <input
+                data-ocid="direct_delivery.invoice.input"
+                type="text"
+                inputMode="numeric"
+                value={invoiceNumber}
+                onChange={(e) => setInvoiceNumber(e.target.value)}
+                placeholder="INV#..."
+                className="border border-green-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-400 bg-green-50"
+              />
+            </div>
+          </div>
+        </div>
+
+        {/* Brick Types */}
+        <div className="bg-white rounded-xl shadow-sm border border-green-100 p-3">
+          <div className="flex items-center gap-2 mb-3">
+            <Layers size={16} className="text-green-700" />
+            <span className="text-xs font-bold uppercase tracking-widest text-gray-500">
+              Brick Types
+            </span>
+          </div>
+          <div className="grid grid-cols-2 gap-2">
+            {BRICK_TYPES.map((type) => {
+              const isSelected = selectedBricks.has(type);
+              const isBats = type === "Bats";
+              return (
+                <div key={type} className="flex flex-col">
+                  <button
+                    type="button"
+                    data-ocid={`direct_delivery.brick.${type.toLowerCase().replace(/ /g, "_")}.toggle`}
+                    onClick={() => toggleBrick(type)}
+                    className={[
+                      "w-full rounded-xl px-3 py-2.5 text-sm font-bold transition-all duration-150 select-none border",
+                      isSelected
+                        ? "bg-green-600 text-white border-green-600 shadow-sm"
+                        : "bg-green-50 text-gray-700 border-green-200 hover:border-green-400",
+                    ].join(" ")}
+                  >
+                    {type}
+                  </button>
+                  <AnimatePresence>
+                    {isSelected && (
+                      <motion.div
+                        initial={{ height: 0, opacity: 0 }}
+                        animate={{ height: "auto", opacity: 1 }}
+                        exit={{ height: 0, opacity: 0 }}
+                        transition={{ duration: 0.15 }}
+                        className="overflow-hidden"
+                      >
+                        <div className="mt-1.5 bg-green-50 rounded-lg border border-green-200 px-2 py-1.5">
+                          <p className="text-[10px] font-bold uppercase tracking-wide text-green-700 mb-1.5">
+                            {isBats ? "Safety" : "Quantity"}
+                          </p>
+                          <div className="flex items-center gap-2">
+                            <button
+                              type="button"
+                              onClick={() => adjustQty(type, -100)}
+                              className="w-7 h-7 rounded-full bg-green-600 text-white font-bold text-base flex items-center justify-center hover:bg-green-700 transition-colors shrink-0"
+                            >
+                              –
+                            </button>
+                            <span className="flex-1 text-center font-bold text-gray-900 text-sm">
+                              {(quantities[type] || 0).toLocaleString()}
+                            </span>
+                            <button
+                              type="button"
+                              onClick={() => adjustQty(type, 100)}
+                              className="w-7 h-7 rounded-full bg-green-600 text-white font-bold text-base flex items-center justify-center hover:bg-green-700 transition-colors shrink-0"
+                            >
+                              +
+                            </button>
+                          </div>
+                        </div>
+                      </motion.div>
+                    )}
+                  </AnimatePresence>
+                </div>
+              );
+            })}
+          </div>
+          <div className="mt-3 bg-green-600/10 border border-green-300 rounded-xl px-4 py-3 flex items-center justify-between">
+            <span className="text-sm font-bold uppercase tracking-wide text-green-700">
+              TOTAL BRICKS
+            </span>
+            <span className="text-xl font-extrabold text-green-700">
+              {totalBricks.toLocaleString()}
+            </span>
+          </div>
+        </div>
+
+        {/* Vehicle Type */}
+        <div className="bg-white rounded-xl shadow-sm border border-green-100 p-3">
+          <div className="flex items-center gap-2 mb-2">
+            <Truck size={16} className="text-green-700" />
+            <span className="text-xs font-bold uppercase tracking-widest text-gray-500">
+              Vehicle Type
+            </span>
+          </div>
+          <div className="flex gap-2">
+            {(["Tractor", "12 Wheel"] as const).map((vt) => (
+              <button
+                key={vt}
+                type="button"
+                data-ocid={`direct_delivery.vehicle_type.${vt.toLowerCase().replace(/ /g, "_")}.toggle`}
+                onClick={() => handleVehicleTypeSelect(vt)}
+                className={`flex-1 py-2.5 rounded-full font-bold text-sm transition-colors ${vehicleType === vt ? "bg-green-700 text-white" : "bg-green-100 text-green-700 hover:bg-green-200"}`}
+              >
+                {vt}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {/* Vehicle Number */}
+        {vehicleType && (
+          <motion.div
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="bg-white rounded-xl shadow-sm border border-green-100 p-3"
+          >
+            <div className="flex items-center gap-2 mb-2">
+              <span className="text-xs font-bold uppercase tracking-widest text-gray-500">
+                Vehicle Number ({vehicleType})
+              </span>
+            </div>
+            {vehicles.filter((v) => v.type === vehicleType).length === 0 ? (
+              <p className="text-sm text-gray-400 italic">
+                No {vehicleType} vehicles saved. Add vehicles in Settings.
+              </p>
+            ) : (
+              <div className="flex flex-wrap gap-1.5">
+                {vehicles
+                  .filter((v) => v.type === vehicleType)
+                  .map((v) => (
+                    <button
+                      key={v.id}
+                      type="button"
+                      data-ocid="direct_delivery.vehicle_number.button"
+                      onClick={() => handleVehicleNumberSelect(v.number)}
+                      className={`px-4 py-2 rounded-full font-bold text-sm transition-colors ${vehicleNumber === v.number ? "bg-green-700 text-white" : "bg-green-100 text-green-700 hover:bg-green-200"}`}
+                    >
+                      {v.number}
+                    </button>
+                  ))}
+              </div>
+            )}
+          </motion.div>
+        )}
+
+        {/* Loading / Unloading Labour */}
+        {vehicleNumber && (
+          <motion.div
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="bg-white rounded-xl shadow-sm border border-green-100 p-3 flex flex-col gap-3"
+          >
+            {/* Loading Labour */}
+            <div>
+              <div className="flex items-center justify-between mb-2">
+                <span className="text-xs font-bold uppercase tracking-widest text-gray-500">
+                  Loading Labour
+                </span>
+                {loadingLabours.length > 0 && perLoadingLabour > 0 && (
+                  <span className="text-xs font-bold text-green-700 bg-green-50 px-2 py-0.5 rounded-full">
+                    ৳{Math.round(perLoadingLabour).toLocaleString()} / জন
+                  </span>
+                )}
+              </div>
+              <div className="flex flex-wrap gap-1.5 mb-1.5">
+                {loadingLabours.map((name) => (
+                  <span
+                    key={name}
+                    className="flex items-center gap-1 px-2 py-1 rounded-full bg-green-700 text-white text-sm font-semibold"
+                  >
+                    {name}
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setLoadingLabours((prev) =>
+                          prev.filter((n) => n !== name),
+                        )
+                      }
+                      className="ml-1 text-green-200 hover:text-white font-bold leading-none"
+                    >
+                      ×
+                    </button>
+                  </span>
+                ))}
+              </div>
+              <div className="flex gap-2">
+                <input
+                  data-ocid="direct_delivery.loading_labour.input"
+                  type="text"
+                  value={customLoadingInput}
+                  onChange={(e) => setCustomLoadingInput(e.target.value)}
+                  placeholder="Add name..."
+                  className="flex-1 border border-green-200 rounded-full px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-green-400"
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" && customLoadingInput.trim()) {
+                      setLoadingLabours((prev) => [
+                        ...prev,
+                        customLoadingInput.trim(),
+                      ]);
+                      setCustomLoadingInput("");
+                    }
+                  }}
+                />
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (customLoadingInput.trim()) {
+                      setLoadingLabours((prev) => [
+                        ...prev,
+                        customLoadingInput.trim(),
+                      ]);
+                      setCustomLoadingInput("");
+                    }
+                  }}
+                  className="px-3 py-1.5 rounded-full bg-green-600 text-white text-sm font-bold hover:bg-green-700 transition-colors"
+                >
+                  +
+                </button>
+              </div>
+            </div>
+
+            {/* Unloading Labour */}
+            <div>
+              <div className="flex items-center justify-between mb-2">
+                <span className="text-xs font-bold uppercase tracking-widest text-gray-500">
+                  Unloading Labour
+                </span>
+                {unloadingLabours.length > 0 && perUnloadingLabour > 0 && (
+                  <span className="text-xs font-bold text-green-700 bg-green-50 px-2 py-0.5 rounded-full">
+                    ৳{Math.round(perUnloadingLabour).toLocaleString()} / জন
+                  </span>
+                )}
+              </div>
+              <div className="flex flex-wrap gap-1.5 mb-1.5">
+                {unloadingLabours.map((name) => (
+                  <span
+                    key={name}
+                    className="flex items-center gap-1 px-2 py-1 rounded-full bg-green-700 text-white text-sm font-semibold"
+                  >
+                    {name}
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setUnloadingLabours((prev) =>
+                          prev.filter((n) => n !== name),
+                        )
+                      }
+                      className="ml-1 text-green-200 hover:text-white font-bold leading-none"
+                    >
+                      ×
+                    </button>
+                  </span>
+                ))}
+              </div>
+              <div className="flex gap-2">
+                <input
+                  data-ocid="direct_delivery.unloading_labour.input"
+                  type="text"
+                  value={customUnloadingInput}
+                  onChange={(e) => setCustomUnloadingInput(e.target.value)}
+                  placeholder="Add name..."
+                  className="flex-1 border border-green-200 rounded-full px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-green-400"
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" && customUnloadingInput.trim()) {
+                      setUnloadingLabours((prev) => [
+                        ...prev,
+                        customUnloadingInput.trim(),
+                      ]);
+                      setCustomUnloadingInput("");
+                    }
+                  }}
+                />
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (customUnloadingInput.trim()) {
+                      setUnloadingLabours((prev) => [
+                        ...prev,
+                        customUnloadingInput.trim(),
+                      ]);
+                      setCustomUnloadingInput("");
+                    }
+                  }}
+                  className="px-3 py-1.5 rounded-full bg-green-600 text-white text-sm font-bold hover:bg-green-700 transition-colors"
+                >
+                  +
+                </button>
+              </div>
+            </div>
+          </motion.div>
+        )}
+
+        {/* Calculated Amounts */}
+        {vehicleType && (
+          <motion.div
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="bg-blue-50 rounded-xl shadow-sm border border-blue-100 p-3"
+          >
+            <span className="text-xs font-bold uppercase tracking-widest text-blue-600 block mb-2">
+              Calculated Amounts
+            </span>
+            <div className="flex flex-col gap-1.5">
+              <div className="flex justify-between items-center">
+                <span className="text-sm text-gray-600">
+                  Rate (per 1000 bricks)
+                </span>
+                <span className="font-bold text-gray-900">
+                  ৳{computedRate.toFixed(2)}
+                </span>
+              </div>
+              <div className="flex justify-between items-center">
+                <span className="text-sm text-gray-600">Total Amount</span>
+                <span className="font-bold text-green-700">
+                  {totalAmount.toFixed(2)}
+                </span>
+              </div>
+              <div className="flex justify-between items-center">
+                <span className="text-sm text-gray-600">Loading Share</span>
+                <span className="font-bold text-gray-900">
+                  {loadingShare.toFixed(2)}
+                </span>
+              </div>
+              <div className="flex justify-between items-center">
+                <span className="text-sm text-gray-600">Unloading Share</span>
+                <span className="font-bold text-gray-900">
+                  {unloadingShare.toFixed(2)}
+                </span>
+              </div>
+            </div>
+          </motion.div>
+        )}
+
+        {/* Save Button */}
+        <button
+          type="button"
+          data-ocid="direct_delivery.save_bottom.button"
+          onClick={handleSave}
+          className="w-full py-3.5 rounded-xl bg-green-600 hover:bg-green-700 transition-colors text-white font-bold text-base shadow-sm"
+        >
+          Save Direct Delivery
+        </button>
+      </main>
+    </motion.div>
+  );
 }
 
 function CompleteDeliveryPage({
@@ -3188,6 +4043,7 @@ function CompletedDeliveriesPage({
       window.print();
     }, 1000);
   };
+
   return (
     <motion.div
       key="completed-list"
@@ -3219,7 +4075,7 @@ function CompletedDeliveriesPage({
           className="no-print flex items-center gap-1 px-3 py-1.5 rounded-lg bg-green-600 text-white text-xs font-medium hover:bg-green-700 transition-colors"
         >
           <Printer size={13} />
-          Print / PDF
+          Print
         </button>
       </header>
 
@@ -3271,148 +4127,102 @@ function CompletedDeliveriesPage({
             </p>
           </div>
         ) : (
-          <div className="grid grid-cols-2 gap-2">
-            {filtered.map((order, idx) => {
-              const cd = order.completionData;
-              const amount = cd?.totalAmount ?? order.totalAmount;
-
-              return (
-                <div
-                  key={order.id}
-                  className="bg-white rounded-xl shadow-sm border border-green-100 p-2"
-                >
-                  <div className="flex items-start justify-between gap-1 mb-1">
-                    <span className="font-bold text-xs text-foreground leading-tight truncate flex-1">
-                      {order.customerName}
-                    </span>
-                    <div className="flex items-center gap-1 shrink-0">
-                      {order.locationType === "Local" && (
-                        <span className="bg-green-50 border border-green-300 text-green-700 text-[9px] font-semibold px-1 py-0.5 rounded-full">
-                          Local
-                        </span>
-                      )}
+          <AnimatePresence>
+            {filtered.map((order, i) => (
+              <motion.div
+                key={order.id}
+                data-ocid={`completed_delivery.item.${i + 1}`}
+                initial={{ opacity: 0, y: 12 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -8 }}
+                transition={{ delay: i * 0.04, duration: 0.2 }}
+                className="bg-white rounded-2xl shadow-sm border border-green-100 overflow-hidden mb-2"
+              >
+                <div className="px-4 pt-3 pb-2">
+                  <div className="flex items-start justify-between gap-2 mb-2">
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-extrabold text-gray-900 truncate">
+                        {order.customerName}
+                      </p>
+                      <p className="text-xs text-gray-500 truncate">
+                        {order.address || "—"} · INV#{order.invoiceNumber}
+                      </p>
+                    </div>
+                    <div className="flex gap-1.5 shrink-0">
                       <button
                         type="button"
-                        data-ocid={`completed.edit_button.${idx + 1}`}
+                        data-ocid={`completed_delivery.item.${i + 1}.edit_button`}
                         onClick={() => onEdit(order)}
-                        className="w-5 h-5 rounded bg-green-50 flex items-center justify-center text-green-600 hover:bg-green-100 transition-colors"
+                        className="w-7 h-7 rounded-full bg-blue-100 flex items-center justify-center hover:bg-blue-200 transition-colors"
                       >
-                        <Pencil size={10} />
+                        <Pencil size={12} className="text-blue-700" />
                       </button>
                       <button
                         type="button"
-                        data-ocid={`completed.delete_button.${idx + 1}`}
+                        data-ocid={`completed_delivery.item.${i + 1}.delete_button`}
                         onClick={() => setPermTarget(order.id)}
-                        className="w-5 h-5 rounded bg-red-50 flex items-center justify-center text-red-500 hover:bg-red-100 transition-colors"
+                        className="w-7 h-7 rounded-full bg-red-100 flex items-center justify-center hover:bg-red-200 transition-colors"
                       >
-                        <Trash2 size={10} />
+                        <Trash2 size={12} className="text-red-600" />
                       </button>
                     </div>
                   </div>
-
-                  <div className="flex items-center gap-1 mb-1">
-                    <span className="text-[10px] font-bold text-green-700">
-                      {amount.toFixed(2)}
-                    </span>
-                  </div>
-
-                  <div className="flex items-center gap-1 text-[10px] text-muted-foreground mb-1">
-                    <CalendarDays
-                      size={9}
-                      className="text-green-600 shrink-0"
-                    />
+                  <div className="flex flex-wrap gap-x-3 gap-y-0.5 text-[11px] text-gray-500 mb-2">
+                    {order.completionData?.vehicleType && (
+                      <span className="font-semibold text-primary">
+                        {order.completionData.vehicleType} ·{" "}
+                        {order.completionData.vehicleNumber}
+                      </span>
+                    )}
                     <span>{order.orderDate}</span>
                   </div>
-
-                  {cd?.vehicleNumber && (
-                    <div className="flex items-center gap-1 text-[10px] text-muted-foreground mb-1">
-                      <Truck size={9} className="text-green-600 shrink-0" />
-                      <span className="truncate">{cd.vehicleNumber}</span>
-                    </div>
-                  )}
-
-                  {order.bricks && order.bricks.length > 0 && (
-                    <div className="flex items-center gap-1 text-[10px] text-muted-foreground mb-1">
-                      <Layers size={9} className="text-green-600 shrink-0" />
-                      <span className="truncate">
-                        {order.bricks
-                          .map((b) => `${b.type}-${b.quantity}`)
-                          .join(", ")}
-                      </span>
-                    </div>
-                  )}
-
-                  <div className="flex items-center gap-1 mb-1">
-                    <span className="bg-blue-50 text-blue-700 text-[9px] font-bold px-1 py-0.5 rounded">
-                      INV#{order.invoiceNumber}
-                    </span>
-                    {order.phoneNumber && (
-                      <a
-                        href={`tel:${order.phoneNumber}`}
-                        className="flex items-center gap-0.5 text-[10px] text-blue-600 hover:underline ml-auto"
-                      >
-                        <Phone size={9} />
-                        <span className="truncate max-w-[60px]">
-                          {order.phoneNumber}
+                  {order.completionData && (
+                    <div className="flex flex-wrap gap-1.5 mb-2">
+                      {[
+                        ...new Set([
+                          ...(order.completionData.loadingLabours || []),
+                          ...(order.completionData.unloadingLabours || []),
+                        ]),
+                      ].map((name) => (
+                        <span
+                          key={name}
+                          className="text-[10px] px-2 py-0.5 bg-green-50 border border-green-200 text-green-700 rounded-full font-semibold"
+                        >
+                          {name}
                         </span>
-                      </a>
-                    )}
-                  </div>
-
-                  {cd &&
-                    (cd.loadingLabours.length > 0 ||
-                      cd.unloadingLabours.length > 0) && (
-                      <div className="border-t border-green-100 pt-1 mt-1">
-                        <div className="flex items-center gap-0.5 text-[9px] font-bold text-green-700 uppercase mb-1">
-                          <Users size={9} />
-                          Labour
-                        </div>
-                        <div className="space-y-0.5">
-                          {Array.from(
-                            new Set([
-                              ...cd.loadingLabours,
-                              ...cd.unloadingLabours,
-                            ]),
-                          ).map((name) => {
-                            const isLoading = cd.loadingLabours.includes(name);
-                            const isUnloading =
-                              cd.unloadingLabours.includes(name);
-                            const rate =
-                              isLoading && isUnloading
-                                ? cd.perLoadingLabour + cd.perUnloadingLabour
-                                : isLoading
-                                  ? cd.perLoadingLabour
-                                  : cd.perUnloadingLabour;
-                            return (
-                              <div
-                                key={name}
-                                className="flex items-center justify-between"
-                              >
-                                <span className="text-[10px] text-foreground truncate">
-                                  {name}
-                                </span>
-                                <span className="text-[10px] font-semibold text-green-700 ml-1 shrink-0">
-                                  {Math.round(rate)}
-                                </span>
-                              </div>
-                            );
-                          })}
-                        </div>
-                      </div>
-                    )}
-
-                  {order.address && (
-                    <div className="flex items-center gap-1 text-[10px] text-muted-foreground mt-1 border-t border-green-50 pt-1">
-                      <MapPin size={9} className="text-green-500 shrink-0" />
-                      <span className="italic truncate">{order.address}</span>
+                      ))}
                     </div>
                   )}
+                  <div className="grid grid-cols-3 gap-1 pt-1.5 border-t border-gray-100">
+                    {(
+                      [
+                        ["BRICKS", order.totalBricks.toLocaleString()],
+                        ["TOTAL", order.totalAmount.toLocaleString()],
+                        [
+                          "LABOUR",
+                          order.completionData
+                            ? order.completionData.totalAmount.toLocaleString()
+                            : "0",
+                        ],
+                      ] as [string, string][]
+                    ).map(([label, val]) => (
+                      <div key={label} className="text-center">
+                        <p className="text-[9px] font-bold uppercase text-gray-400 tracking-wider">
+                          {label}
+                        </p>
+                        <p className="text-xs font-extrabold text-gray-800 mt-0.5">
+                          {val}
+                        </p>
+                      </div>
+                    ))}
+                  </div>
                 </div>
-              );
-            })}
-          </div>
+              </motion.div>
+            ))}
+          </AnimatePresence>
         )}
       </main>
+
       <PermissionDialog
         open={permTarget !== null}
         onClose={() => setPermTarget(null)}
@@ -3526,11 +4336,23 @@ function WeeklyLabourReportPage({
       transition={{ duration: 0.25, ease: "easeOut" }}
       className="min-h-screen bg-gray-100 flex flex-col"
     >
-      <style>
-        {
-          "@media print { .no-print { display: none !important; } body { background: white; overflow: visible !important; } * { overflow: visible !important; max-height: none !important; } }"
+      <style>{`
+        @media print {
+          .no-print { display: none !important; }
+          body { background: white !important; overflow: visible !important; }
+          * { overflow: visible !important; max-height: none !important; }
+          .report-content * { color: #000 !important; background: white !important; }
+          .report-title-main { font-size: 20pt !important; font-weight: 900 !important; color: #000 !important; text-align: center !important; }
+          .report-title-sub { font-size: 14pt !important; font-weight: 700 !important; color: #000 !important; text-align: center !important; }
+          table { border-collapse: collapse !important; width: 100% !important; }
+          th { background: white !important; color: #000 !important; border: 1px solid #000 !important; padding: 6px 8px !important; font-weight: 700 !important; }
+          td { background: white !important; color: #000 !important; border: 1px solid #000 !important; padding: 5px 8px !important; }
+          tr { background: white !important; }
+          .total-col { font-weight: 700 !important; color: #000 !important; }
+          .grand-total-row td { font-weight: 700 !important; color: #000 !important; background: white !important; border-top: 2px solid #000 !important; }
+          @page { margin: 15mm; }
         }
-      </style>
+      `}</style>
 
       {!embedded && (
         <header
@@ -3588,23 +4410,20 @@ function WeeklyLabourReportPage({
           data-ocid="weekly_labour.print.button"
           className="no-print flex items-center gap-1 bg-[#1a4d2e] text-white px-3 py-1.5 rounded-lg text-xs font-bold hover:bg-[#133d22]"
         >
-          🖨 Print / PDF
+          🖨 Print
         </button>
       </div>
 
       <main className="flex-1 p-3">
-        <div ref={reportRef} className="max-w-5xl mx-auto space-y-4">
+        <div
+          ref={reportRef}
+          className="report-content max-w-5xl mx-auto space-y-4"
+        >
           <div className="bg-white rounded-xl shadow-md p-4 border border-gray-200 text-center">
-            <div
-              className="text-xl font-extrabold uppercase tracking-widest"
-              style={{ color: "#1a4d2e" }}
-            >
+            <div className="report-title-main text-xl font-extrabold uppercase tracking-widest text-black">
               S B C O BRICK FIELD
             </div>
-            <div
-              className="text-base font-extrabold uppercase tracking-widest"
-              style={{ color: "#1a4d2e" }}
-            >
+            <div className="report-title-sub text-base font-extrabold uppercase tracking-widest text-black">
               WEEKLY LABOURS REPORT
             </div>
             {dates.length > 0 && (
@@ -3705,14 +4524,17 @@ function WeeklyLabourReportPage({
                         );
                       })}
                       <td
-                        className="text-center font-extrabold py-2 px-2"
+                        className="total-col text-center font-extrabold py-2 px-2"
                         style={{ border: "1px solid #333", color: "#dc2626" }}
                       >
                         {rowTotal(worker)}
                       </td>
                     </tr>
                   ))}
-                  <tr style={{ background: "#fff7f7" }}>
+                  <tr
+                    className="grand-total-row"
+                    style={{ background: "#fff7f7" }}
+                  >
                     <td
                       className="font-extrabold text-xs px-3 py-2 uppercase tracking-wider"
                       style={{
@@ -3841,23 +4663,6 @@ function DailyLabourReportPage({
   const overallTotal = summaryWorkers.reduce((s, [, a]) => s + a, 0);
 
   // Fallback static data
-  const staticLabours = ["Rahul", "Soma", "Sinu", "Raju"];
-  const staticRows = [
-    {
-      address: "DANGAPARA",
-      qty: 1000,
-      rate: 230,
-      amounts: [57.5, 57.5, 57.5, 57.5],
-    },
-    {
-      address: "DANGAPARA",
-      qty: 1000,
-      rate: 230,
-      amounts: [57.5, 57.5, 57.5, 57.5],
-    },
-  ];
-  const staticVehicles = ["1235", "3104"];
-
   return (
     <motion.div
       key="daily-labour-report"
@@ -3870,9 +4675,25 @@ function DailyLabourReportPage({
       <style>{`
         @media print {
           .no-print { display: none !important; }
-          body { background: white !important; overflow: visible !important; }
+          body { background: white !important; overflow: visible !important; margin: 0 !important; }
           * { overflow: visible !important; max-height: none !important; }
-          .print-area { box-shadow: none !important; }
+          .print-area { box-shadow: none !important; border: none !important; }
+          .report-content * { color: #000 !important; background: white !important; }
+          .report-header { text-align: center !important; border-bottom: 2px solid #000 !important; }
+          .report-title-main { font-size: 20pt !important; font-weight: 900 !important; color: #000 !important; letter-spacing: 3px !important; text-align: center !important; }
+          .report-title-sub { font-size: 14pt !important; font-weight: 700 !important; color: #000 !important; text-align: center !important; }
+          .vehicle-header { background: white !important; color: #000 !important; border: 1px solid #000 !important; padding: 6px 12px !important; }
+          .vehicle-number-text { font-size: 12pt !important; font-weight: 700 !important; color: #000 !important; }
+          table { border-collapse: collapse !important; width: 100% !important; }
+          th { background: white !important; color: #000 !important; border: 1px solid #000 !important; padding: 6px 8px !important; font-weight: 700 !important; text-align: center !important; }
+          td { background: white !important; color: #000 !important; border: 1px solid #000 !important; padding: 5px 8px !important; }
+          tr { background: white !important; }
+          .total-row td { font-weight: 700 !important; color: #000 !important; background: white !important; }
+          .grand-total-box { color: #000 !important; background: white !important; border: 1px solid #000 !important; font-weight: 700 !important; }
+          .summary-card { background: white !important; border: 1px solid #000 !important; }
+          .summary-amount { color: #000 !important; font-weight: 700 !important; }
+          .overall-total { color: #000 !important; background: white !important; border: 1px solid #000 !important; font-weight: 700 !important; }
+          @page { margin: 15mm; }
         }
       `}</style>
 
@@ -3930,22 +4751,22 @@ function DailyLabourReportPage({
           data-ocid="daily_labour.print.button"
           className="no-print flex items-center gap-1 bg-[#1a4d2e] text-white px-3 py-1.5 rounded-lg text-xs font-bold hover:bg-[#133d22]"
         >
-          🖨 Print / PDF
+          🖨 Print
         </button>
       </div>
 
       <main className="flex-1 p-4 print-area">
         <div
           ref={reportRef}
-          className="max-w-2xl mx-auto bg-white rounded-xl shadow-md p-6 border border-gray-200"
+          className="report-content max-w-2xl mx-auto bg-white rounded-xl shadow-md p-6 border border-gray-200"
         >
           {/* Title */}
           <div className="text-center mb-6 border-b-2 border-[#1a4d2e] pb-4">
-            <h2 className="text-xl font-black uppercase tracking-widest text-[#1a4d2e]">
+            <h2 className="report-title-main text-xl font-black uppercase tracking-widest text-black">
               S B C O BRICK FIELD
             </h2>
-            <h3 className="text-base font-bold uppercase tracking-widest text-[#1a4d2e] mt-1">
-              Daily Labours Report
+            <h3 className="report-title-sub text-base font-bold uppercase tracking-widest text-black mt-1">
+              DAILY LABOURS REPORT
             </h3>
             {(fromDate || toDate) && (
               <p className="text-xs text-gray-500 mt-2 font-medium">
@@ -3976,9 +4797,9 @@ function DailyLabourReportPage({
                 );
                 return (
                   <div key={vs.vehicle} className="mb-6">
-                    <div className="bg-[#1a4d2e] text-white px-4 py-2 rounded-t-lg">
-                      <span className="text-sm font-bold uppercase tracking-widest">
-                        Vehicle: {vs.vehicle}
+                    <div className="vehicle-header bg-[#1a4d2e] text-white px-4 py-2 rounded-t-lg">
+                      <span className="vehicle-number-text text-sm font-bold uppercase tracking-widest">
+                        VEHICLE: {vs.vehicle}
                       </span>
                     </div>
                     <div className="overflow-x-auto border border-black rounded-b-lg">
@@ -4049,8 +4870,8 @@ function DailyLabourReportPage({
                       </table>
                     </div>
                     <div className="flex justify-end mt-2">
-                      <span className="text-sm font-bold text-pink-600 bg-pink-50 border border-pink-200 px-4 py-1.5 rounded-lg">
-                        Grand Total: {grandTotal.toFixed(2)}
+                      <span className="grand-total-box text-sm font-bold text-black bg-white border border-black px-4 py-1.5 rounded-lg">
+                        GRAND TOTAL: {grandTotal.toFixed(2)}
                       </span>
                     </div>
                   </div>
@@ -4066,20 +4887,20 @@ function DailyLabourReportPage({
                   {summaryWorkers.map(([name, amount]) => (
                     <div
                       key={name}
-                      className="text-center bg-gray-50 border border-gray-200 rounded-lg py-2 px-3"
+                      className="summary-card text-center bg-white border border-gray-400 rounded-lg py-2 px-3"
                     >
-                      <div className="text-xs font-bold uppercase text-[#1a4d2e]">
+                      <div className="text-xs font-bold uppercase text-black">
                         {name}
                       </div>
-                      <div className="text-base font-black text-pink-600 mt-0.5">
+                      <div className="summary-amount text-base font-black text-black mt-0.5">
                         {amount.toFixed(2)}
                       </div>
                     </div>
                   ))}
                 </div>
                 <div className="text-center mt-3">
-                  <span className="text-sm font-black text-pink-600 bg-pink-50 border border-pink-200 px-5 py-2 rounded-lg inline-block">
-                    Overall Total: {overallTotal.toFixed(2)}
+                  <span className="overall-total text-sm font-black text-black bg-white border border-black px-5 py-2 rounded-lg inline-block">
+                    OVERALL TOTAL: {overallTotal.toFixed(2)}
                   </span>
                 </div>
               </div>
@@ -4089,111 +4910,12 @@ function DailyLabourReportPage({
               এই তারিখ রেঞ্জে কোনো ডেলিভারি নেই
             </div>
           ) : (
-            <>
-              {staticVehicles.map((vehicle) => (
-                <div key={vehicle} className="mb-6">
-                  <div className="bg-[#1a4d2e] text-white px-4 py-2 rounded-t-lg">
-                    <span className="text-sm font-bold uppercase tracking-widest">
-                      Vehicle: {vehicle}
-                    </span>
-                  </div>
-                  <div className="overflow-x-auto border border-black rounded-b-lg">
-                    <table className="w-full text-sm border-collapse">
-                      <thead>
-                        <tr className="bg-[#1a4d2e] text-white">
-                          <th className="border border-black px-2 py-2 text-xs font-bold uppercase">
-                            Address
-                          </th>
-                          <th className="border border-black px-2 py-2 text-xs font-bold uppercase">
-                            Qty
-                          </th>
-                          <th className="border border-black px-2 py-2 text-xs font-bold uppercase">
-                            Rate
-                          </th>
-                          {staticLabours.map((l) => (
-                            <th
-                              key={l}
-                              className="border border-black px-2 py-2 text-xs font-bold uppercase"
-                            >
-                              {l}
-                            </th>
-                          ))}
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {staticRows.map((row) => (
-                          <tr key={row.address + row.qty}>
-                            <td className="border border-black px-2 py-2 text-xs">
-                              {row.address}
-                            </td>
-                            <td className="border border-black px-2 py-2 text-xs text-center">
-                              {row.qty}
-                            </td>
-                            <td className="border border-black px-2 py-2 text-xs text-center">
-                              {row.rate}
-                            </td>
-                            {row.amounts.map((a, j) => (
-                              <td
-                                key={`${j}-${a}`}
-                                className="border border-black px-2 py-2 text-xs text-center"
-                              >
-                                {a.toFixed(2)}
-                              </td>
-                            ))}
-                          </tr>
-                        ))}
-                        <tr className="bg-gray-50">
-                          <td
-                            colSpan={3}
-                            className="border border-black px-2 py-2 text-xs font-bold text-center"
-                          >
-                            Total
-                          </td>
-                          {staticLabours.map((l) => (
-                            <td
-                              key={l}
-                              className="border border-black px-2 py-2 text-xs font-bold text-center text-pink-600"
-                            >
-                              115
-                            </td>
-                          ))}
-                        </tr>
-                      </tbody>
-                    </table>
-                  </div>
-                  <div className="flex justify-end mt-2">
-                    <span className="text-sm font-bold text-pink-600 bg-pink-50 border border-pink-200 px-4 py-1.5 rounded-lg">
-                      Grand Total: 460
-                    </span>
-                  </div>
-                </div>
-              ))}
-              <div className="mt-4 border-t-2 border-[#1a4d2e] pt-4">
-                <h4 className="text-center text-sm font-black uppercase tracking-widest text-[#1a4d2e] mb-3">
-                  Summary
-                </h4>
-                <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
-                  {staticLabours.map((name, i) => (
-                    <div
-                      key={name}
-                      className="text-center bg-gray-50 border border-gray-200 rounded-lg py-2 px-3"
-                    >
-                      <div className="text-xs font-bold uppercase text-[#1a4d2e]">
-                        {name}
-                      </div>
-                      <div className="text-base font-black text-pink-600 mt-0.5">
-                        {[230, 230, 230, 230][i]}
-                      </div>
-                    </div>
-                  ))}
-                </div>
-                <div className="text-center mt-3">
-                  <span className="text-sm font-black text-pink-600 bg-pink-50 border border-pink-200 px-5 py-2 rounded-lg inline-block">
-                    Overall Total: 920
-                  </span>
-                </div>
-              </div>
-            </>
+            <div className="text-center py-12 text-gray-500">
+              <p className="text-base font-semibold">কোনো ডেলিভারি নেই</p>
+              <p className="text-sm mt-1">
+                Completed Delivery যোগ করলে এখানে রিপোর্ট দেখাবে।
+              </p>
+            </div>
           )}
         </div>
       </main>
@@ -4532,6 +5254,27 @@ function App() {
       return [];
     }
   });
+
+  const [trash, setTrash] = useState<TrashItem[]>(() => {
+    try {
+      const saved = localStorage.getItem("sbco_trash");
+      const items: TrashItem[] = saved ? JSON.parse(saved) : [];
+      const sevenDaysAgo = new Date(
+        Date.now() - 7 * 24 * 60 * 60 * 1000,
+      ).toISOString();
+      return items.filter((t) => t.deletedAt > sevenDaysAgo);
+    } catch {
+      return [];
+    }
+  });
+
+  const [lastBackupTime, setLastBackupTime] = useState<string>(
+    () => localStorage.getItem("sbco_lastBackup") || "",
+  );
+
+  useEffect(() => {
+    localStorage.setItem("sbco_trash", JSON.stringify(trash));
+  }, [trash]);
   const [completedDeliveries, setCompletedDeliveries] = useState<Order[]>(
     () => {
       try {
@@ -4580,8 +5323,42 @@ function App() {
     setOrders((prev) => prev.map((o) => (o.id === updated.id ? updated : o)));
   };
 
+  const autoBackup = () => {
+    try {
+      const data: Record<string, any> = {};
+      for (let i = 0; i < localStorage.length; i++) {
+        const key = localStorage.key(i)!;
+        if (key === "sbco_autobackup") continue;
+        try {
+          data[key] = JSON.parse(localStorage.getItem(key)!);
+        } catch {
+          data[key] = localStorage.getItem(key);
+        }
+      }
+      localStorage.setItem(
+        "sbco_autobackup",
+        JSON.stringify({ savedAt: new Date().toISOString(), data }),
+      );
+    } catch {
+      /* silent */
+    }
+  };
+
   const deleteOrder = (orderId: string) => {
+    const item = orders.find((o) => o.id === orderId);
+    if (item) {
+      setTrash((prev) => [
+        ...prev,
+        {
+          id: Date.now().toString(),
+          type: "order",
+          item,
+          deletedAt: new Date().toISOString(),
+        },
+      ]);
+    }
     setOrders((prev) => prev.filter((o) => o.id !== orderId));
+    setTimeout(autoBackup, 100);
   };
 
   const markAsDelivered = (
@@ -4612,11 +5389,37 @@ function App() {
   };
 
   const deleteCompletedDelivery = (orderId: string) => {
+    const item = completedDeliveries.find((o) => o.id === orderId);
+    if (item) {
+      setTrash((prev) => [
+        ...prev,
+        {
+          id: Date.now().toString(),
+          type: "completedDelivery",
+          item,
+          deletedAt: new Date().toISOString(),
+        },
+      ]);
+    }
     setCompletedDeliveries((prev) => prev.filter((o) => o.id !== orderId));
+    setTimeout(autoBackup, 100);
   };
 
   const deleteDelivery = (orderId: string) => {
+    const item = pendingDeliveries.find((o) => o.id === orderId);
+    if (item) {
+      setTrash((prev) => [
+        ...prev,
+        {
+          id: Date.now().toString(),
+          type: "delivery",
+          item,
+          deletedAt: new Date().toISOString(),
+        },
+      ]);
+    }
     setPendingDeliveries((prev) => prev.filter((o) => o.id !== orderId));
+    setTimeout(autoBackup, 100);
   };
 
   const handleViewPending = (order: Order) => {
@@ -4789,6 +5592,15 @@ function App() {
             onUpdateOrder={updateOrder}
             onDeleteOrder={deleteOrder}
             onViewPending={handleViewPending}
+            onMarkPending={(order) => {
+              setPendingDeliveries((prev) => {
+                if (prev.find((p) => p.id === order.id)) return prev;
+                return [order, ...prev];
+              });
+              toast.success(
+                `${order.customerName} পেন্ডিং ডেলিভারিতে যোগ হয়েছে!`,
+              );
+            }}
             completedDeliveries={completedDeliveries}
           />
         ) : view === "pending-delivery" ? (
@@ -4863,6 +5675,17 @@ function App() {
               setEditingOrder(order);
             }}
             onDelete={(orderId) => {
+              const item = orders.find((o) => o.id === orderId);
+              if (item)
+                setTrash((prev) => [
+                  ...prev,
+                  {
+                    id: Date.now().toString(),
+                    type: "closedOrder",
+                    item,
+                    deletedAt: new Date().toISOString(),
+                  },
+                ]);
               setOrders((prev) => prev.filter((o) => o.id !== orderId));
               toast.success("Order deleted");
             }}
@@ -4895,41 +5718,23 @@ function App() {
             completedDeliveries={completedDeliveries}
           />
         ) : view === "settings" ? (
-          <SettingsPage key="settings" onBack={() => setView("dashboard")} />
+          <SettingsPage
+            key="settings"
+            onBack={() => setView("dashboard")}
+            trash={trash}
+            setTrash={setTrash}
+            lastBackupTime={lastBackupTime}
+            setLastBackupTime={setLastBackupTime}
+          />
         ) : (
-          <motion.div
+          <DirectDeliveryPage
             key="direct-delivery"
-            initial={{ x: 60, opacity: 0 }}
-            animate={{ x: 0, opacity: 1 }}
-            exit={{ x: 60, opacity: 0 }}
-            transition={{ duration: 0.25, ease: "easeOut" }}
-            className="min-h-screen bg-background flex flex-col"
-          >
-            <header className="bg-primary text-primary-foreground px-4 py-5 flex items-center gap-3">
-              <button
-                type="button"
-                data-ocid="nav.back.button"
-                onClick={() => setView("dashboard")}
-                className="p-1.5 rounded-lg hover:bg-white/10 transition-colors"
-              >
-                <ArrowLeft size={20} />
-              </button>
-              <h1 className="text-lg font-bold uppercase tracking-widest">
-                Direct Delivery
-              </h1>
-            </header>
-            <main className="flex-1 flex flex-col items-center justify-center gap-4 p-8">
-              <div className="w-20 h-20 rounded-2xl bg-brand-mint-badge flex items-center justify-center">
-                <Truck size={36} className="text-primary" />
-              </div>
-              <p className="text-xl font-bold text-foreground text-center uppercase tracking-wide">
-                Coming Soon
-              </p>
-              <p className="text-sm text-muted-foreground text-center">
-                This feature is under development.
-              </p>
-            </main>
-          </motion.div>
+            onBack={() => setView("dashboard")}
+            onSaveComplete={(delivery) => {
+              setCompletedDeliveries((prev) => [delivery, ...prev]);
+              setView("dashboard");
+            }}
+          />
         )}
       </AnimatePresence>
 
