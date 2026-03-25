@@ -1879,8 +1879,7 @@ function PendingOrderDetailPage({
 
   const handleSave = () => {
     onSave(order);
-    toast.success("Pending order updated!");
-    onBack();
+    toast.success("পেন্ডিং ডেলিভারিতে যোগ হয়েছে!");
   };
 
   return (
@@ -2099,7 +2098,7 @@ function PendingOrderDetailPage({
             onClick={handleSave}
             className="w-full py-4 rounded-full bg-primary text-primary-foreground text-base font-extrabold uppercase tracking-widest shadow-card hover:opacity-90 active:scale-95 transition-all"
           >
-            SAVE PENDING
+            PENDING ডেলিভারি যোগ করুন
           </button>
         </div>
       </div>
@@ -4515,7 +4514,7 @@ function WeeklyLabourReportPage({
                           >
                             {amt !== null ? (
                               <span className="font-bold text-gray-800">
-                                {amt}
+                                {Number(amt).toFixed(2)}
                               </span>
                             ) : (
                               <span className="text-gray-400 text-xs">NIL</span>
@@ -4527,7 +4526,7 @@ function WeeklyLabourReportPage({
                         className="total-col text-center font-extrabold py-2 px-2"
                         style={{ border: "1px solid #333", color: "#dc2626" }}
                       >
-                        {rowTotal(worker)}
+                        {Number(rowTotal(worker)).toFixed(2)}
                       </td>
                     </tr>
                   ))}
@@ -4558,7 +4557,7 @@ function WeeklyLabourReportPage({
                           className="text-center font-bold py-2 text-xs"
                           style={{ border: "1px solid #333", color: "#dc2626" }}
                         >
-                          {dayTotal > 0 ? dayTotal : "—"}
+                          {dayTotal > 0 ? Number(dayTotal).toFixed(2) : "—"}
                         </td>
                       );
                     })}
@@ -4566,7 +4565,7 @@ function WeeklyLabourReportPage({
                       className="text-center font-extrabold py-2 text-sm"
                       style={{ border: "1px solid #333", color: "#dc2626" }}
                     >
-                      {grandTotal}
+                      {Number(grandTotal).toFixed(2)}
                     </td>
                   </tr>
                 </tbody>
@@ -5593,13 +5592,7 @@ function App() {
             onDeleteOrder={deleteOrder}
             onViewPending={handleViewPending}
             onMarkPending={(order) => {
-              setPendingDeliveries((prev) => {
-                if (prev.find((p) => p.id === order.id)) return prev;
-                return [order, ...prev];
-              });
-              toast.success(
-                `${order.customerName} পেন্ডিং ডেলিভারিতে যোগ হয়েছে!`,
-              );
+              handleViewPending(order);
             }}
             completedDeliveries={completedDeliveries}
           />
@@ -5633,7 +5626,10 @@ function App() {
             }}
             onSave={(updated) => {
               updateOrder(updated);
-              setPendingDeliveries((prev) => [updated, ...prev]);
+              setPendingDeliveries((prev) => {
+                if (prev.find((p) => p.id === updated.id)) return prev;
+                return [updated, ...prev];
+              });
               setView(pendingOrderReturnView);
               setSelectedPendingOrder(null);
             }}
