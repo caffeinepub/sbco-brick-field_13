@@ -1878,7 +1878,22 @@ function PendingOrderDetailPage({
   };
 
   const handleSave = () => {
-    onSave(order);
+    if (totalDeliveryBricks <= 0) {
+      toast.error("কমপক্ষে একটি ইট টাইপ ও পরিমাণ নির্বাচন করুন।");
+      return;
+    }
+    // Build brick list using only user-selected quantities
+    const selectedBrickList = BRICK_TYPES.filter(
+      (t) =>
+        t !== "Bats" && selectedBricks.has(t) && (deliveryQtys[t] || 0) > 0,
+    ).map((t) => ({ type: t, quantity: deliveryQtys[t] || 0 }));
+
+    const pendingEntry: Order = {
+      ...order,
+      bricks: selectedBrickList,
+      totalBricks: totalDeliveryBricks,
+    };
+    onSave(pendingEntry);
     toast.success("পেন্ডিং ডেলিভারিতে যোগ হয়েছে!");
   };
 
