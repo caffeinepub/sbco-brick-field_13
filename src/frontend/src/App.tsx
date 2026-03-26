@@ -2256,7 +2256,7 @@ function TotalOrdersPage({
   onBack,
   onUpdateOrder,
   onDeleteOrder,
-  onViewPending,
+  onViewPending: _onViewPending,
   onMarkPending,
   completedDeliveries,
 }: {
@@ -2275,6 +2275,7 @@ function TotalOrdersPage({
   const [activeTo, setActiveTo] = useState("");
   const [historyOrder, setHistoryOrder] = useState<Order | null>(null);
   const [paymentOrder, setPaymentOrder] = useState<Order | null>(null);
+  const [editOrder, setEditOrder] = useState<Order | null>(null);
 
   const activeOrders = orders.filter(
     (o) => !(o.dueAmount === 0 && (o.deliveredBricks || 0) >= o.totalBricks),
@@ -2452,7 +2453,7 @@ function TotalOrdersPage({
                       type="button"
                       data-ocid={`total_orders.item.${i + 1}.edit_button`}
                       onClick={() => {
-                        onViewPending(order);
+                        setEditOrder(order);
                       }}
                       className="w-8 h-8 rounded-full bg-blue-100 flex items-center justify-center hover:bg-blue-200 transition-colors"
                     >
@@ -2561,6 +2562,14 @@ function TotalOrdersPage({
         order={historyOrder}
         completedDeliveries={completedDeliveries}
         onClose={() => setHistoryOrder(null)}
+      />
+      <EditOrderDialog
+        order={editOrder}
+        onClose={() => setEditOrder(null)}
+        onSave={(updated) => {
+          onUpdateOrder(updated);
+          setEditOrder(null);
+        }}
       />
       <PermissionDialog
         open={_permTarget !== null}
@@ -2853,6 +2862,7 @@ function PendingDeliveryPage({
 }
 
 interface CompleteDeliveryData {
+  deliveryDate?: string;
   vehicleType: "Tractor" | "12 Wheel" | null;
   vehicleNumber: string | null;
   loadingLabours: string[];
@@ -3171,6 +3181,18 @@ function DirectDeliveryPage({
                 onChange={(e) => setInvoiceNumber(e.target.value)}
                 placeholder="INV#..."
                 className="border border-green-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-400 bg-green-50"
+              />
+            </div>
+            <div className="flex flex-col gap-1 col-span-2">
+              <p className="text-[10px] font-bold uppercase tracking-wide text-gray-500">
+                Delivery Date
+              </p>
+              <input
+                data-ocid="direct_delivery.date.input"
+                type="date"
+                value={deliveryDate}
+                onChange={(e) => setDeliveryDate(e.target.value)}
+                className="w-full border border-green-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-400 bg-green-50"
               />
             </div>
           </div>
@@ -3523,6 +3545,7 @@ function CompleteDeliveryPage({
   onBack: () => void;
   onSaveComplete: (orderId: string, deliveryData: CompleteDeliveryData) => void;
 }) {
+  const [deliveryDate, setDeliveryDate] = useState(getTodayISO());
   const [vehicleType, setVehicleType] = useState<"Tractor" | "12 Wheel" | null>(
     null,
   );
@@ -3612,6 +3635,7 @@ function CompleteDeliveryPage({
 
   const handleSave = () => {
     onSaveComplete(order.id, {
+      deliveryDate,
       vehicleType,
       vehicleNumber,
       loadingLabours,
@@ -3717,6 +3741,23 @@ function CompleteDeliveryPage({
             </p>
             <p className="text-xs text-gray-400 mt-1">{getBrickSummary()}</p>
           </div>
+        </div>
+
+        {/* Delivery Date */}
+        <div className="bg-white rounded-xl shadow-sm border border-green-100 p-3">
+          <div className="flex items-center gap-2 mb-2">
+            <CalendarDays size={16} className="text-green-700" />
+            <span className="text-xs font-bold uppercase tracking-widest text-gray-500">
+              Delivery Date
+            </span>
+          </div>
+          <input
+            data-ocid="complete_delivery.date.input"
+            type="date"
+            value={deliveryDate}
+            onChange={(e) => setDeliveryDate(e.target.value)}
+            className="w-full border border-green-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-400 bg-green-50"
+          />
         </div>
 
         {/* Vehicle Type */}
