@@ -118,6 +118,7 @@ interface Order {
     unloadingShare: number;
     perLoadingLabour: number;
     perUnloadingLabour: number;
+    deliveryDate?: string;
   };
 }
 
@@ -1856,6 +1857,7 @@ function PendingOrderDetailPage({
     Partial<Record<BrickType, number>>
   >({});
 
+  const [pendingDate, setPendingDate] = useState(getTodayISO());
   const dueBricks = order.totalBricks;
 
   const totalDeliveryBricks = BRICK_TYPES.reduce((sum, type) => {
@@ -1892,6 +1894,7 @@ function PendingOrderDetailPage({
       ...order,
       bricks: selectedBrickList,
       totalBricks: totalDeliveryBricks,
+      orderDate: pendingDate,
     };
     onSave(pendingEntry);
     toast.success("পেন্ডিং ডেলিভারিতে যোগ হয়েছে!");
@@ -1925,17 +1928,20 @@ function PendingOrderDetailPage({
       </header>
 
       <div className="flex-1 overflow-y-auto pb-8">
-        {/* Order Date Row */}
+        {/* Pending Date Row */}
         <div className="mx-4 mt-4 bg-card rounded-xl shadow-card px-4 py-3 flex items-center justify-between">
           <div className="flex items-center gap-2">
             <CalendarDays size={18} className="text-primary" />
             <span className="text-xs font-bold uppercase tracking-wide text-muted-foreground">
-              ORDER DATE
+              PENDING DATE
             </span>
           </div>
-          <span className="text-sm font-extrabold text-foreground">
-            {formatDateShort(order.orderDate)}
-          </span>
+          <input
+            type="date"
+            value={pendingDate}
+            onChange={(e) => setPendingDate(e.target.value)}
+            className="text-sm font-extrabold text-foreground bg-transparent border border-border rounded-lg px-2 py-1"
+          />
         </div>
 
         {/* Customer Information */}
@@ -4673,6 +4679,7 @@ function DailyLabourReportPage({
         address: string;
         bricks: string;
         rate: number;
+        date: string;
         labours: { name: string; amount: number }[];
       }[];
     }
@@ -4697,6 +4704,7 @@ function DailyLabourReportPage({
       address: order.address || "—",
       bricks: totalBricks ? `${totalBricks.toLocaleString()}` : "—",
       rate: cd.rate || 0,
+      date: cd.deliveryDate || order.orderDate || "",
       labours: Object.entries(labourMap).map(([name, amount]) => ({
         name,
         amount,
@@ -4862,6 +4870,9 @@ function DailyLabourReportPage({
                         <thead>
                           <tr className="bg-[#1a4d2e] text-white">
                             <th className="border border-black px-2 py-2 text-xs font-bold uppercase">
+                              Date
+                            </th>
+                            <th className="border border-black px-2 py-2 text-xs font-bold uppercase">
                               Address
                             </th>
                             <th className="border border-black px-2 py-2 text-xs font-bold uppercase">
@@ -4883,6 +4894,9 @@ function DailyLabourReportPage({
                         <tbody>
                           {vs.rows.map((row, ri) => (
                             <tr key={`${row.address}-${ri}`}>
+                              <td className="border border-black px-2 py-2 text-xs text-center">
+                                {formatDateShort(row.date)}
+                              </td>
                               <td className="border border-black px-2 py-2 text-xs">
                                 {row.address}
                               </td>
@@ -4907,7 +4921,7 @@ function DailyLabourReportPage({
                           ))}
                           <tr className="bg-gray-50">
                             <td
-                              colSpan={3}
+                              colSpan={4}
                               className="border border-black px-2 py-2 text-xs font-bold text-center"
                             >
                               Total
@@ -5157,6 +5171,9 @@ function EditOrderDialog({
     String(order?.totalAmount ?? ""),
   );
   const [paidAmount, setPaidAmount] = useState(String(order?.paidAmount ?? ""));
+  const [brickList, setBrickList] = useState<BrickSelection[]>(
+    order?.bricks ?? [],
+  );
 
   useEffect(() => {
     if (order) {
@@ -5166,6 +5183,7 @@ function EditOrderDialog({
       setInvoice(order.invoiceNumber ?? "");
       setTotalAmount(String(order.totalAmount));
       setPaidAmount(String(order.paidAmount));
+      setBrickList(order.bricks ?? []);
     }
   }, [order]);
 
@@ -5173,6 +5191,10 @@ function EditOrderDialog({
     if (!order) return;
     const total = Number.parseFloat(totalAmount) || 0;
     const paid = Number.parseFloat(paidAmount) || 0;
+    const newTotalBricks = brickList.reduce(
+      (s, b) => s + (b.type === "Bats" ? b.safety || 0 : b.quantity || 0),
+      0,
+    );
     onSave({
       ...order,
       customerName: name,
@@ -5182,6 +5204,8 @@ function EditOrderDialog({
       totalAmount: total,
       paidAmount: paid,
       dueAmount: Math.max(0, total - paid),
+      bricks: brickList,
+      totalBricks: newTotalBricks,
     });
     toast.success("Order updated!");
     onClose();
@@ -5254,6 +5278,60 @@ function EditOrderDialog({
                 inputMode="numeric"
                 className="mt-1"
               />
+            </div>
+          </div>
+          <div>
+            <Label className="text-xs font-semibold uppercase tracking-wide">
+              Brick Types
+            </Label>
+            <div className="mt-1 space-y-2">
+              {brickList.map((b, idx) => (
+                <div key={b.type} className="flex items-center gap-2">
+                  <span className="text-xs flex-1 font-medium">{b.type}</span>
+                  <Input
+                    value={b.type === "Bats" ? (b.safety ?? 0) : b.quantity}
+                    onChange={(e) => {
+                      const val = Number(e.target.value) || 0;
+                      setBrickList((prev) =>
+                        prev.map((x, i) =>
+                          i === idx
+                            ? x.type === "Bats"
+                              ? { ...x, safety: val }
+                              : { ...x, quantity: val }
+                            : x,
+                        ),
+                      );
+                    }}
+                    inputMode="numeric"
+                    className="w-20 text-xs"
+                  />
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setBrickList((prev) => prev.filter((_, i) => i !== idx))
+                    }
+                    className="text-red-500 hover:text-red-700"
+                  >
+                    <X size={14} />
+                  </button>
+                </div>
+              ))}
+            </div>
+            <div className="mt-2 flex flex-wrap gap-1">
+              {BRICK_TYPES.filter(
+                (t) => !brickList.find((b) => b.type === t),
+              ).map((t) => (
+                <button
+                  key={t}
+                  type="button"
+                  onClick={() =>
+                    setBrickList((prev) => [...prev, { type: t, quantity: 0 }])
+                  }
+                  className="text-[10px] px-2 py-1 rounded-full bg-primary/10 text-primary border border-primary/30 hover:bg-primary/20 transition-colors"
+                >
+                  + {t}
+                </button>
+              ))}
             </div>
           </div>
         </div>
@@ -5681,7 +5759,14 @@ function App() {
               setSelectedPendingOrder(null);
             }}
             onSave={(updated) => {
-              updateOrder(updated);
+              const originalOrder = orders.find((o) => o.id === updated.id);
+              updateOrder({
+                ...updated,
+                totalBricks: originalOrder
+                  ? originalOrder.totalBricks
+                  : updated.totalBricks,
+                bricks: originalOrder ? originalOrder.bricks : updated.bricks,
+              });
               setPendingDeliveries((prev) => {
                 if (prev.find((p) => p.id === updated.id)) return prev;
                 return [updated, ...prev];
