@@ -139,12 +139,6 @@ function formatDate(d: Date) {
   });
 }
 
-function formatDateShort(dateStr: string) {
-  if (!dateStr) return "—";
-  const [y, m, day] = dateStr.split("-");
-  return `${day}/${m}/${y}`;
-}
-
 function formatTime(d: Date) {
   return d.toLocaleTimeString("en-US", {
     hour: "2-digit",
@@ -2487,7 +2481,15 @@ function TotalOrdersPage({
                 <div className="px-4 py-2.5 space-y-1.5">
                   <div className="flex flex-wrap gap-x-3 gap-y-0.5 text-xs text-muted-foreground">
                     <span>📅 {order.orderDate}</span>
-                    {order.phoneNumber && <span>📞 {order.phoneNumber}</span>}
+                    {order.phoneNumber && (
+                      <a
+                        href={`tel:${order.phoneNumber}`}
+                        className="flex items-center gap-1 text-green-600 font-semibold hover:underline"
+                      >
+                        <Phone size={12} />
+                        {order.phoneNumber}
+                      </a>
+                    )}
                     <span
                       className={`font-semibold ${order.locationType === "Local" ? "text-green-600" : "text-blue-600"}`}
                     >
@@ -4651,7 +4653,6 @@ function DailyLabourReportPage({
 }) {
   const [fromDate, setFromDate] = useState("");
   const [toDate, setToDate] = useState("");
-  const reportRef = useRef<HTMLDivElement>(null);
 
   const handlePrint = () => {
     setTimeout(() => {
@@ -4659,73 +4660,76 @@ function DailyLabourReportPage({
     }, 1000);
   };
 
-  // Filter completedDeliveries by date range
+  // Filter by date range using saved delivery/order date
   const filtered = completedDeliveries.filter((o) => {
-    if (!fromDate && !toDate) return true;
-    const d = new Date(o.createdAt);
+    const cd = o.completionData;
+    const dateStr = cd?.deliveryDate || o.orderDate || "";
+    if (!dateStr) return !fromDate && !toDate;
+    const d = new Date(dateStr);
     if (fromDate && d < new Date(fromDate)) return false;
     if (toDate && d > new Date(`${toDate}T23:59:59`)) return false;
     return true;
   });
 
-  const hasRealData = filtered.length > 0;
+  // Group by date + vehicle
+  type CardRow = {
+    address: string;
+    bricks: number;
+    rate: number;
+    amount: number;
+  };
+  type DateVehicleCard = {
+    date: string;
+    vehicle: string;
+    rows: CardRow[];
+    total: number;
+  };
 
-  // Build vehicle sections from filtered data
-  const vehicleMap: Record<
-    string,
-    {
-      vehicle: string;
-      rows: {
-        address: string;
-        bricks: string;
-        rate: number;
-        date: string;
-        labours: { name: string; amount: number }[];
-      }[];
-    }
-  > = {};
+  const cardMap: Record<string, DateVehicleCard> = {};
+
   for (const order of filtered) {
     const cd = order.completionData;
     if (!cd || !cd.vehicleNumber) continue;
+    const dateStr = cd.deliveryDate || order.orderDate || "";
     const vn = cd.vehicleNumber;
-    if (!vehicleMap[vn]) vehicleMap[vn] = { vehicle: vn, rows: [] };
-    // Deduplicate labours
-    const labourMap: Record<string, number> = {};
-    for (const n of cd.loadingLabours)
-      labourMap[n] = (labourMap[n] || 0) + cd.perLoadingLabour;
-    for (const n of cd.unloadingLabours)
-      labourMap[n] = (labourMap[n] || 0) + cd.perUnloadingLabour;
+    const key = `${dateStr}__${vn}`;
+    if (!cardMap[key])
+      cardMap[key] = { date: dateStr, vehicle: vn, rows: [], total: 0 };
+
     const totalBricks =
       order.bricks?.reduce(
         (s, b) => s + (b.type === "Bats" ? b.safety || 0 : b.quantity || 0),
         0,
       ) || 0;
-    vehicleMap[vn].rows.push({
+    const rate = cd.rate || 0;
+    const amount = (totalBricks / 1000) * rate;
+
+    cardMap[key].rows.push({
       address: order.address || "—",
-      bricks: totalBricks ? `${totalBricks.toLocaleString()}` : "—",
-      rate: cd.rate || 0,
-      date: cd.deliveryDate || order.orderDate || "",
-      labours: Object.entries(labourMap).map(([name, amount]) => ({
-        name,
-        amount,
-      })),
+      bricks: totalBricks,
+      rate,
+      amount,
     });
+    cardMap[key].total += amount;
   }
-  const vehicleSections = Object.values(vehicleMap);
 
-  // Summary: aggregate per worker across all sections
-  const summaryMap: Record<string, number> = {};
-  for (const vs of vehicleSections) {
-    for (const row of vs.rows) {
-      for (const l of row.labours) {
-        summaryMap[l.name] = (summaryMap[l.name] || 0) + l.amount;
-      }
-    }
-  }
-  const summaryWorkers = Object.entries(summaryMap);
-  const overallTotal = summaryWorkers.reduce((s, [, a]) => s + a, 0);
+  // Sort cards by date descending (latest first)
+  const cards = Object.values(cardMap).sort((a, b) => {
+    const da = new Date(a.date).getTime() || 0;
+    const db = new Date(b.date).getTime() || 0;
+    return db - da;
+  });
 
-  // Fallback static data
+  const formatCardDate = (dateStr: string) => {
+    if (!dateStr) return "—";
+    const d = new Date(dateStr);
+    if (Number.isNaN(d.getTime())) return dateStr;
+    const dd = String(d.getDate()).padStart(2, "0");
+    const mm = String(d.getMonth() + 1).padStart(2, "0");
+    const yyyy = d.getFullYear();
+    return `${dd}/${mm}/${yyyy}`;
+  };
+
   return (
     <motion.div
       key="daily-labour-report"
@@ -4740,23 +4744,16 @@ function DailyLabourReportPage({
           .no-print { display: none !important; }
           body { background: white !important; overflow: visible !important; margin: 0 !important; }
           * { overflow: visible !important; max-height: none !important; }
-          .print-area { box-shadow: none !important; border: none !important; }
-          .report-content * { color: #000 !important; background: white !important; }
-          .report-header { text-align: center !important; border-bottom: 2px solid #000 !important; }
-          .report-title-main { font-size: 20pt !important; font-weight: 900 !important; color: #000 !important; letter-spacing: 3px !important; text-align: center !important; }
-          .report-title-sub { font-size: 14pt !important; font-weight: 700 !important; color: #000 !important; text-align: center !important; }
-          .vehicle-header { background: white !important; color: #000 !important; border: 1px solid #000 !important; padding: 6px 12px !important; }
-          .vehicle-number-text { font-size: 12pt !important; font-weight: 700 !important; color: #000 !important; }
+          .report-card { box-shadow: none !important; border: 1px solid #000 !important; break-inside: avoid; margin-bottom: 16px; }
+          .report-card-header { background: white !important; color: #000 !important; border-bottom: 1px solid #000 !important; }
+          .report-card-header-text { font-size: 11pt !important; font-weight: 700 !important; color: #000 !important; }
+          .report-title-main { font-size: 18pt !important; font-weight: 900 !important; color: #000 !important; }
+          .report-title-sub { font-size: 13pt !important; font-weight: 700 !important; color: #000 !important; }
           table { border-collapse: collapse !important; width: 100% !important; }
-          th { background: white !important; color: #000 !important; border: 1px solid #000 !important; padding: 6px 8px !important; font-weight: 700 !important; text-align: center !important; }
-          td { background: white !important; color: #000 !important; border: 1px solid #000 !important; padding: 5px 8px !important; }
-          tr { background: white !important; }
-          .total-row td { font-weight: 700 !important; color: #000 !important; background: white !important; }
-          .grand-total-box { color: #000 !important; background: white !important; border: 1px solid #000 !important; font-weight: 700 !important; }
-          .summary-card { background: white !important; border: 1px solid #000 !important; }
-          .summary-amount { color: #000 !important; font-weight: 700 !important; }
-          .overall-total { color: #000 !important; background: white !important; border: 1px solid #000 !important; font-weight: 700 !important; }
-          @page { margin: 15mm; }
+          th { background: white !important; color: #000 !important; border: 1px solid #000 !important; padding: 5px 8px !important; font-weight: 700 !important; }
+          td { background: white !important; color: #000 !important; border: 1px solid #000 !important; padding: 4px 8px !important; }
+          .card-total-row { font-weight: 700 !important; color: #000 !important; border-top: 2px solid #000 !important; }
+          @page { margin: 15mm; size: A4; }
         }
       `}</style>
 
@@ -4776,17 +4773,14 @@ function DailyLabourReportPage({
         </header>
       )}
 
-      {/* Toolbar: From/To Date + Print + PDF */}
+      {/* Toolbar */}
       <div className="no-print flex flex-wrap gap-2 items-center px-4 py-3 bg-white border-b border-gray-200">
         <div className="flex items-center gap-1">
-          <label
-            htmlFor="weekly-from"
-            className="text-xs font-bold text-gray-600"
-          >
+          <label htmlFor="dlr-from" className="text-xs font-bold text-gray-600">
             From:
           </label>
           <input
-            id="weekly-from"
+            id="dlr-from"
             type="date"
             value={fromDate}
             onChange={(e) => setFromDate(e.target.value)}
@@ -4794,14 +4788,11 @@ function DailyLabourReportPage({
           />
         </div>
         <div className="flex items-center gap-1">
-          <label
-            htmlFor="weekly-to"
-            className="text-xs font-bold text-gray-600"
-          >
+          <label htmlFor="dlr-to" className="text-xs font-bold text-gray-600">
             To:
           </label>
           <input
-            id="weekly-to"
+            id="dlr-to"
             type="date"
             value={toDate}
             onChange={(e) => setToDate(e.target.value)}
@@ -4812,187 +4803,117 @@ function DailyLabourReportPage({
           type="button"
           onClick={handlePrint}
           data-ocid="daily_labour.print.button"
-          className="no-print flex items-center gap-1 bg-[#1a4d2e] text-white px-3 py-1.5 rounded-lg text-xs font-bold hover:bg-[#133d22]"
+          className="flex items-center gap-1 bg-[#1a4d2e] text-white px-3 py-1.5 rounded-lg text-xs font-bold hover:bg-[#133d22]"
         >
           🖨 Print
         </button>
       </div>
 
-      <main className="flex-1 p-4 print-area">
-        <div
-          ref={reportRef}
-          className="report-content max-w-2xl mx-auto bg-white rounded-xl shadow-md p-6 border border-gray-200"
-        >
-          {/* Title */}
-          <div className="text-center mb-6 border-b-2 border-[#1a4d2e] pb-4">
-            <h2 className="report-title-main text-xl font-black uppercase tracking-widest text-black">
-              S B C O BRICK FIELD
-            </h2>
-            <h3 className="report-title-sub text-base font-bold uppercase tracking-widest text-black mt-1">
-              DAILY LABOURS REPORT
-            </h3>
-            {(fromDate || toDate) && (
-              <p className="text-xs text-gray-500 mt-2 font-medium">
-                {fromDate && `From: ${fromDate}`}
-                {fromDate && toDate && " — "}
-                {toDate && `To: ${toDate}`}
-              </p>
-            )}
-          </div>
-
-          {hasRealData ? (
-            <>
-              {vehicleSections.map((vs) => {
-                // Collect all unique labour names for this vehicle
-                const allNames = Array.from(
-                  new Set(vs.rows.flatMap((r) => r.labours.map((l) => l.name))),
-                );
-                const colTotals: Record<string, number> = {};
-                for (const n of allNames) {
-                  colTotals[n] = vs.rows.reduce((s, r) => {
-                    const l = r.labours.find((x) => x.name === n);
-                    return s + (l ? l.amount : 0);
-                  }, 0);
-                }
-                const grandTotal = Object.values(colTotals).reduce(
-                  (s, a) => s + a,
-                  0,
-                );
-                return (
-                  <div key={vs.vehicle} className="mb-6">
-                    <div className="vehicle-header bg-[#1a4d2e] text-white px-4 py-2 rounded-t-lg">
-                      <span className="vehicle-number-text text-sm font-bold uppercase tracking-widest">
-                        VEHICLE: {vs.vehicle}
-                      </span>
-                    </div>
-                    <div className="overflow-x-auto border border-black rounded-b-lg">
-                      <table className="w-full text-sm border-collapse">
-                        <thead>
-                          <tr className="bg-[#1a4d2e] text-white">
-                            <th className="border border-black px-2 py-2 text-xs font-bold uppercase">
-                              Date
-                            </th>
-                            <th className="border border-black px-2 py-2 text-xs font-bold uppercase">
-                              Address
-                            </th>
-                            <th className="border border-black px-2 py-2 text-xs font-bold uppercase">
-                              Bricks
-                            </th>
-                            <th className="border border-black px-2 py-2 text-xs font-bold uppercase">
-                              Rate
-                            </th>
-                            {allNames.map((n) => (
-                              <th
-                                key={n}
-                                className="border border-black px-2 py-2 text-xs font-bold uppercase"
-                              >
-                                {n}
-                              </th>
-                            ))}
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {vs.rows.map((row, ri) => (
-                            <tr key={`${row.address}-${ri}`}>
-                              <td className="border border-black px-2 py-2 text-xs text-center">
-                                {formatDateShort(row.date)}
-                              </td>
-                              <td className="border border-black px-2 py-2 text-xs">
-                                {row.address}
-                              </td>
-                              <td className="border border-black px-2 py-2 text-xs text-center">
-                                {row.bricks}
-                              </td>
-                              <td className="border border-black px-2 py-2 text-xs text-center">
-                                {row.rate}
-                              </td>
-                              {allNames.map((n) => {
-                                const l = row.labours.find((x) => x.name === n);
-                                return (
-                                  <td
-                                    key={n}
-                                    className="border border-black px-2 py-2 text-xs text-center"
-                                  >
-                                    {l ? l.amount.toFixed(2) : "—"}
-                                  </td>
-                                );
-                              })}
-                            </tr>
-                          ))}
-                          <tr className="bg-gray-50">
-                            <td
-                              colSpan={4}
-                              className="border border-black px-2 py-2 text-xs font-bold text-center"
-                            >
-                              Total
-                            </td>
-                            {allNames.map((n) => (
-                              <td
-                                key={n}
-                                className="border border-black px-2 py-2 text-xs font-bold text-center text-pink-600"
-                              >
-                                {colTotals[n].toFixed(2)}
-                              </td>
-                            ))}
-                          </tr>
-                        </tbody>
-                      </table>
-                    </div>
-                    <div className="flex justify-end mt-2">
-                      <span className="grand-total-box text-sm font-bold text-black bg-white border border-black px-4 py-1.5 rounded-lg">
-                        GRAND TOTAL: {grandTotal.toFixed(2)}
-                      </span>
-                    </div>
-                  </div>
-                );
-              })}
-
-              {/* Summary */}
-              <div className="mt-4 border-t-2 border-[#1a4d2e] pt-4">
-                <h4 className="text-center text-sm font-black uppercase tracking-widest text-[#1a4d2e] mb-3">
-                  Summary
-                </h4>
-                <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
-                  {summaryWorkers.map(([name, amount]) => (
-                    <div
-                      key={name}
-                      className="summary-card text-center bg-white border border-gray-400 rounded-lg py-2 px-3"
-                    >
-                      <div className="text-xs font-bold uppercase text-black">
-                        {name}
-                      </div>
-                      <div className="summary-amount text-base font-black text-black mt-0.5">
-                        {amount.toFixed(2)}
-                      </div>
-                    </div>
-                  ))}
-                </div>
-                <div className="text-center mt-3">
-                  <span className="overall-total text-sm font-black text-black bg-white border border-black px-5 py-2 rounded-lg inline-block">
-                    OVERALL TOTAL: {overallTotal.toFixed(2)}
-                  </span>
-                </div>
-              </div>
-            </>
-          ) : fromDate || toDate ? (
-            <div className="text-center py-12 text-gray-500 font-semibold text-sm">
-              এই তারিখ রেঞ্জে কোনো ডেলিভারি নেই
-            </div>
-          ) : (
-            <div className="text-center py-12 text-gray-500">
-              <p className="text-base font-semibold">কোনো ডেলিভারি নেই</p>
-              <p className="text-sm mt-1">
-                Completed Delivery যোগ করলে এখানে রিপোর্ট দেখাবে।
-              </p>
-            </div>
+      <main className="flex-1 p-4 space-y-4 max-w-2xl mx-auto w-full">
+        {/* Report title */}
+        <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-5 text-center">
+          <h2 className="report-title-main text-xl font-black uppercase tracking-widest text-black">
+            S B C O BRICK FIELD
+          </h2>
+          <h3 className="report-title-sub text-sm font-bold uppercase tracking-widest text-black mt-1">
+            DAILY LABOURS REPORT
+          </h3>
+          {(fromDate || toDate) && (
+            <p className="text-xs text-gray-500 mt-2">
+              {fromDate && `From: ${fromDate}`}
+              {fromDate && toDate && " — "}
+              {toDate && `To: ${toDate}`}
+            </p>
           )}
         </div>
+
+        {cards.length === 0 ? (
+          <div
+            className="bg-white rounded-xl shadow-sm border border-gray-200 p-8 text-center"
+            data-ocid="daily_labour.empty_state"
+          >
+            <p className="text-sm text-gray-400 font-medium">
+              কোনো ডেটা পাওয়া যায়নি
+            </p>
+            <p className="text-xs text-gray-300 mt-1">
+              Complete Delivery করলে এখানে দেখাবে
+            </p>
+          </div>
+        ) : (
+          cards.map((card) => (
+            <div
+              key={`${card.date}-${card.vehicle}`}
+              className="report-card bg-white rounded-xl shadow-md border border-gray-200 overflow-hidden"
+            >
+              {/* Card header */}
+              <div className="report-card-header bg-[#1a4d2e] px-4 py-2.5 flex items-center justify-between">
+                <span className="report-card-header-text text-white text-sm font-bold uppercase tracking-wide">
+                  VEHICLE: {card.vehicle}
+                </span>
+                <span className="report-card-header-text text-white text-sm font-bold">
+                  DATE: {formatCardDate(card.date)}
+                </span>
+              </div>
+
+              {/* Table */}
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm border-collapse">
+                  <thead>
+                    <tr className="bg-gray-50">
+                      <th className="border border-gray-300 px-3 py-2 text-xs font-bold uppercase text-left">
+                        Address
+                      </th>
+                      <th className="border border-gray-300 px-3 py-2 text-xs font-bold uppercase text-center">
+                        Bricks
+                      </th>
+                      <th className="border border-gray-300 px-3 py-2 text-xs font-bold uppercase text-center">
+                        Rate
+                      </th>
+                      <th className="border border-gray-300 px-3 py-2 text-xs font-bold uppercase text-right">
+                        Amount
+                      </th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {card.rows.map((row, ri) => (
+                      <tr
+                        key={`row-${ri}-${row.address}`}
+                        className={ri % 2 === 0 ? "bg-white" : "bg-gray-50/50"}
+                      >
+                        <td className="border border-gray-200 px-3 py-2 text-xs">
+                          {row.address}
+                        </td>
+                        <td className="border border-gray-200 px-3 py-2 text-xs text-center">
+                          {row.bricks.toLocaleString()}
+                        </td>
+                        <td className="border border-gray-200 px-3 py-2 text-xs text-center">
+                          {row.rate}
+                        </td>
+                        <td className="border border-gray-200 px-3 py-2 text-xs text-right font-semibold">
+                          {row.amount.toFixed(2)}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+
+              {/* Card total */}
+              <div className="card-total-row px-4 py-2.5 flex items-center justify-between bg-gray-50 border-t border-gray-200">
+                <span className="text-xs font-bold uppercase text-gray-600">
+                  Total Amount
+                </span>
+                <span className="text-sm font-extrabold text-[#1a4d2e]">
+                  {card.total.toFixed(2)}
+                </span>
+              </div>
+            </div>
+          ))
+        )}
       </main>
     </motion.div>
   );
 }
-
-// ─── Closed Orders Page ───────────────────────────────────────────────────────
 
 function ClosedOrdersPage({
   orders,

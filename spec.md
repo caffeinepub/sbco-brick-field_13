@@ -1,32 +1,33 @@
 # SBCO Brick Field
 
 ## Current State
-- Total Orders page has Edit (pencil) and Delete (trash) buttons per order, but no 'Mark as Pending' button to send order to Pending Delivery list
-- Direct Delivery form has Customer Name, Address, Phone, Invoice fields but NO date field
-- Daily Report uses completedDeliveries as data source (correct), but shows hardcoded static fallback data (Rahul/Soma/Sinu/Raju, DANGAPARA rows) when no real data exists — so deleting all completed deliveries still shows static data in report
-- All report/list pages have both a 'Print' button and a 'Download PDF' button
+The Daily Labour Report groups all deliveries by vehicle number in one combined table, mixing multiple dates. Phone numbers in Total Orders are displayed as plain text spans. Date handling uses `createdAt` or `orderDate` inconsistently.
 
 ## Requested Changes (Diff)
 
 ### Add
-- Red 'Pending' button on each Total Orders card — clicking it moves the order to Pending Delivery list
-- Date input field in Direct Delivery Basic Information section (defaulting to today)
+- Date-wise grouping in Daily Report: build a `dateVehicleMap` keyed by `date + vehicle`, each producing a separate card
+- Card header showing `VEHICLE: XXXX | DATE: DD/MM/YYYY`
+- Per-card total amount at card bottom
+- Clickable phone numbers in TotalOrdersPage using `<a href="tel:...">` links
+- Date picker in Add Order, Add Pending, Direct Delivery, and Complete Delivery forms (already present but needs to save correctly)
 
 ### Modify
-- Daily Report: remove static fallback data entirely. When no completed deliveries exist, show an empty state message instead of fake data
-- Weekly Report: same — remove any static fallback data, show empty state when no data
-- Completed Delivery delete: already removes from completedDeliveries state → this will correctly remove from Daily/Weekly reports since they read from that state. No additional changes needed here.
-- Completed Delivery edit: same — edits to completedDeliveries state already reflect in reports
-- Remove 'Download PDF' buttons from ALL pages (Pending Delivery, Completed Delivery, Daily Report, Weekly Report, Closed Orders, any other page). Keep only 'Print' button everywhere.
+- DailyLabourReportPage: replace vehicle-grouped sections with date+vehicle grouped cards
+- Each card table: columns = Address | Bricks | Rate | Amount (remove Date column, remove Labour columns from main table)
+- Amount per row = (bricks/1000) * rate
+- Cards sorted descending by date (latest first)
+- Phone number display in TotalOrdersPage: wrap in `<a href="tel:${order.phoneNumber}">` with Phone icon, styled green
+- Filtering by date range uses `cd.deliveryDate || order.orderDate` (the saved date, not createdAt)
 
 ### Remove
-- Static fallback data arrays (staticLabours, staticRows, staticVehicles) from DailyLabourReport component
-- All 'Download PDF' / handleDownloadPDF buttons across all pages
+- Date column from inside the report table
+- Combined vehicle table that mixes multiple dates
 
 ## Implementation Plan
-1. In Total Orders card, add a red button (with Truck or ChevronRight icon) labeled 'Pending' beside edit/delete buttons. Clicking it calls onMarkPending(order) which moves the order to pendingDeliveries list.
-2. In DirectDeliveryPage form, add a date input (type=date, default today) in the Basic Information 2-column grid. Pass the date to the saved order's orderDate and approxDeliveryDate.
-3. In DailyLabourReport: remove staticLabours, staticRows, staticVehicles variables. Replace the `!hasRealData` branch with a simple empty state UI ("কোনো ডেলিভারি নেই" message).
-4. In WeeklyLabourReport: same — remove any static fallback data if present.
-5. Search entire App.tsx for all PDF download buttons (data-ocid containing 'pdf') and remove them along with their handler functions (handleDownloadPDF1, handleDownloadPDF2, handleDownloadPDF3, handleDownloadPDF4).
-6. Validate and build.
+1. In `DailyLabourReportPage`: rebuild data grouping — group by `date` first, then `vehicleNumber` within date. Sort dates descending. Each (date, vehicle) pair = one card.
+2. Card header: `VEHICLE: {vn} | DATE: {formatted date}`
+3. Card table: Address | Bricks | Rate | Amount columns only. Amount = `(totalBricks/1000) * rate`.
+4. Card footer: Total Amount for that card.
+5. In `TotalOrdersPage`: make phone number an `<a href="tel:...">` anchor.
+6. Print styles: update to match new card-per-date layout.
